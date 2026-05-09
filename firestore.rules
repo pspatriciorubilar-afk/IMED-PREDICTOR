@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // RESTAURACIÓN DE COMPATIBILIDAD: Permite lectura pública para el dashboard antiguo
+    match /athletes/{athleteId} {
+      allow read: if true; 
+      allow write: if request.auth != null; // Protegemos la escritura
+      
+      match /measurements/{measurementId} {
+        allow read: if true;
+        allow write: if request.auth != null;
+      }
+    }
+
+    // Colección de configuraciones (necesaria para el dashboard antiguo)
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Nueva colección IMED Predictor
+    match /Daily_Performance/{performanceId} {
+      allow read, write: if true; // Permitimos lectura pública temporalmente para facilitar la transición
+    }
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

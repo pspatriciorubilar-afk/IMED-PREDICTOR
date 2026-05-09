@@ -1,0 +1,25 @@
+name: imed_predictor_dashboard
+description: Dashboard de prevención de lesiones de élite - IMED Predictor.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_core: ^2.15.0
+  cloud_firestore: ^4.8.3
+  fl_chart: ^0.63.0
+  google_fonts: ^5.1.0
+  intl: ^0.18.1
+  flutter_riverpod: ^2.3.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true

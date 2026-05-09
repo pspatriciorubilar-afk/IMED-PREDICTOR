@@ -1,0 +1,22 @@
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+.firebaserc
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# JavaScript / Node
+node_modules/
+.DS_Store
+dist/
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini

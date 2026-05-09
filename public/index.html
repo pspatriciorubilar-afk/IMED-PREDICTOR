@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IMED Predictor — Centro de Mando de Prevención de Lesiones</title>
+  <meta name="description" content="Dashboard de élite para la prevención de lesiones deportivas. Motor de Índice de Vulnerabilidad Neuro-Mecánica (IVN) integrado con IMED Sport." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Firebase SDK v9 compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════════
+       SIDEBAR
+  ════════════════════════════════════════════════ -->
+  <nav id="sidebar" class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">⚡</div>
+      <div class="logo-text">
+        <span class="logo-title">IMED</span>
+        <span class="logo-sub">PREDICTOR</span>
+      </div>
+    </div>
+    <div class="sidebar-section-label">NAVEGACIÓN</div>
+    <ul class="sidebar-nav">
+      <li class="nav-item active" id="nav-dashboard" onclick="showView('dashboard')">
+        <span class="nav-icon">⊞</span><span>Dashboard</span>
+      </li>
+      <li class="nav-item" id="nav-athletes" onclick="showView('athletes')">
+        <span class="nav-icon">👤</span><span>Atletas</span>
+      </li>
+      <li class="nav-item" id="nav-reports" onclick="showView('reports')">
+        <span class="nav-icon">📊</span><span>Neuro-Reports</span>
+      </li>
+      <li class="nav-item" id="nav-upload" onclick="showView('upload')">
+        <span class="nav-icon">⬆</span><span>Subir GPS</span>
+      </li>
+      <li class="nav-item" id="nav-settings" onclick="showView('settings')">
+        <span class="nav-icon">⚙</span><span>Ajustes</span>
+      </li>
+    </ul>
+    <div class="sidebar-footer">
+      <div class="sidebar-section-label">ESTADO DEL SISTEMA</div>
+      <div class="system-status">
+        <span class="status-dot green"></span>
+        <span class="status-text">Firebase Conectado</span>
+      </div>
+      <div class="system-status" style="margin-top:8px">
+        <span class="status-dot green" id="rt-dot"></span>
+        <span class="status-text">Tiempo Real Activo</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ═══════════════════════════════════════════════
+       MAIN CONTENT
+  ════════════════════════════════════════════════ -->
+  <main class="main-content">
+
+    <!-- ─── TOPBAR ─── -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 id="page-title">Centro de Mando de Rendimiento</h1>
+        <p id="page-sub">Monitoreo de Riesgo en Tiempo Real · <span id="live-date"></span></p>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-stat" id="stat-critical">
+          <span class="stat-number text-red" id="count-critical">–</span>
+          <span class="stat-label">RIESGO CRÍTICO</span>
+        </div>
+        <div class="topbar-stat" id="stat-warning">
+          <span class="stat-number text-yellow" id="count-warning">–</span>
+          <span class="stat-label">ADVERTENCIA</span>
+        </div>
+        <div class="topbar-stat" id="stat-optimal">
+          <span class="stat-number text-green" id="count-optimal">–</span>
+          <span class="stat-label">ÓPTIMO</span>
+        </div>
+        <button class="btn-icon" onclick="refreshData()" title="Actualizar datos">↻</button>
+        <div class="avatar">PS</div>
+      </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════
+         VIEW: DASHBOARD
+    ════════════════════════════════════════════════ -->
+    <div id="view-dashboard" class="view active">
+
+      <!-- KPI Row -->
+      <section class="kpi-row">
+        <div class="kpi-card glass">
+          <div class="kpi-icon red-glow">⚠</div>
+          <div>
+            <div class="kpi-value text-red" id="kpi-critical">–</div>
+            <div class="kpi-label">ATLETAS EN RIESGO CRÍTICO</div>
+          </div>
+        </div>
+        <div class="kpi-card glass">
+          <div class="kpi-icon yellow-glow">🔄</div>
+          <div>
+            <div class="kpi-value text-yellow" id="kpi-coordination">–</div>
+            <div class="kpi-label">RIESGO DE COORDINACIÓN</div>
+          </div>
+        </div>
+        <div class="kpi-card glass">
+          <div class="kpi-icon green-glow">✓</div>
+          <div>
+            <div class="kpi-value text-green" id="kpi-optimal">–</div>
+            <div class="kpi-label">ADAPTACIÓN ÓPTIMA</div>
+          </div>
+        </div>
+        <div class="kpi-card glass">
+          <div class="kpi-icon blue-glow">📅</div>
+          <div>
+            <div class="kpi-value text-blue" id="kpi-total">–</div>
+            <div class="kpi-label">EVALUACIONES HOY</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Risk Alert Panel + Correlation Chart -->
+      <div class="grid-2col">
+
+        <!-- Risk Panel -->
+        <section class="panel glass">
+          <div class="panel-header">
+            <div>
+              <div class="panel-label">PANEL DE ALERTAS</div>
+              <h2 class="panel-title">Semáforo de Riesgo</h2>
+            </div>
+            <div class="legend">
+              <span class="dot red"></span><span>Crítico</span>
+              <span class="dot yellow"></span><span>Advert.</span>
+              <span class="dot green"></span><span>Óptimo</span>
+            </div>
+          </div>
+          <div id="athlete-list" class="athlete-list">
+            <div class="loading-state">
+              <div class="spinner"></div>
+              <span>Cargando datos de atletas…</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Correlation Chart -->
+        <section class="panel glass">
+          <div class="panel-header">
+            <div>
+              <div class="panel-label">NEURO-EVALUACIÓN</div>
+              <h2 class="panel-title">Correlación IRI vs Desaceleraciones</h2>
+            </div>
+            <select id="chart-filter" class="select-glass" onchange="updateChart()">
+              <option value="7">Últimos 7 días</option>
+              <option value="14">Últimos 14 días</option>
+              <option value="30">Últimos 30 días</option>
+            </select>
+          </div>
+          <div class="chart-container">
+            <canvas id="correlationChart"></canvas>
+          </div>
+          <div class="chart-legend">
+            <div class="legend-item"><span class="legend-dot" style="background:#FF4D4D"></span> Riesgo Crítico (IRI &lt; 60)</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#FFD60A"></span> Riesgo Coordinación (Lapses &gt; 2)</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#32D74B"></span> Adaptación Óptima</div>
+          </div>
+        </section>
+      </div>
+
+      <!-- IVN Algorithm Explainer -->
+      <section class="panel glass ivn-panel">
+        <div class="panel-header">
+          <div>
+            <div class="panel-label">MOTOR DE INTELIGENCIA</div>
+            <h2 class="panel-title">Algoritmo $IVN$ — Índice de Vulnerabilidad Neuro-Mecánica</h2>
+          </div>
+        </div>
+        <div class="ivn-grid">
+          <div class="ivn-rule red-border">
+            <div class="ivn-icon">🔴</div>
+            <div class="ivn-rule-title">RIESGO CRÍTICO</div>
+            <div class="ivn-rule-formula">IRI &lt; 60 + Carga GPS &gt; Media</div>
+            <div class="ivn-rule-desc">Falla inminente por fatiga neuromuscular. Sistema nervioso central sobrecargado incapaz de proteger las articulaciones bajo carga mecánica elevada. Acción: <strong>Optimizar</strong> carga inmediatamente.</div>
+          </div>
+          <div class="ivn-rule yellow-border">
+            <div class="ivn-icon">🟡</div>
+            <div class="ivn-rule-title">RIESGO DE COORDINACIÓN</div>
+            <div class="ivn-rule-formula">Lapses &gt; 2 unidades</div>
+            <div class="ivn-rule-desc">El SNC ha perdido el timing neuro-motor necesario para proteger las articulaciones. Fallos de atención sostenida predicen déficits de control motor. Acción: <strong>Reprogramar</strong> sesión.</div>
+          </div>
+          <div class="ivn-rule green-border">
+            <div class="ivn-icon">🟢</div>
+            <div class="ivn-rule-title">ADAPTACIÓN ÓPTIMA</div>
+            <div class="ivn-rule-formula">IRI &gt; 85 + Carga GPS Alta</div>
+            <div class="ivn-rule-desc">El atleta asimila la carga de entrenamiento con alta disponibilidad neurológica. Ventana de supercompensación activa. Mantener planificación actual.</div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         VIEW: ATHLETES
+    ════════════════════════════════════════════════ -->
+    <div id="view-athletes" class="view">
+      <section class="panel glass">
+        <div class="panel-header">
+          <div>
+            <div class="panel-label">GESTIÓN DE PLANTILLA</div>
+            <h2 class="panel-title">Perfiles de Atletas</h2>
+          </div>
+          <input type="text" id="search-athlete" class="search-input" placeholder="Buscar atleta…" oninput="filterAthletes(this.value)" />
+        </div>
+        <div id="athletes-table-container">
+          <div class="loading-state"><div class="spinner"></div><span>Cargando plantilla…</span></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         VIEW: NEURO-REPORTS
+    ════════════════════════════════════════════════ -->
+    <div id="view-reports" class="view">
+      <section class="panel glass">
+        <div class="panel-header">
+          <div>
+            <div class="panel-label">ANÁLISIS CIENTÍFICO</div>
+            <h2 class="panel-title">Historial de Neuro-evaluaciones</h2>
+          </div>
+          <select id="report-athlete-select" class="select-glass" onchange="loadAthleteReport(this.value)">
+            <option value="">Seleccionar atleta…</option>
+          </select>
+        </div>
+        <div id="report-container">
+          <div class="empty-state">
+            <div class="empty-icon">📊</div>
+            <p>Selecciona un atleta para visualizar su historial de neuro-evaluación</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         VIEW: GPS UPLOAD
+    ════════════════════════════════════════════════ -->
+    <div id="view-upload" class="view">
+      <section class="panel glass" style="max-width:680px; margin:0 auto;">
+        <div class="panel-header">
+          <div>
+            <div class="panel-label">ADAPTADOR UNIVERSAL</div>
+            <h2 class="panel-title">Subir CSV de Datos GPS</h2>
+          </div>
+        </div>
+        <div class="upload-info">
+          <p>El sistema es <strong>agnóstico al hardware</strong>. Acepta archivos exportados desde:</p>
+          <div class="badges-row">
+            <span class="badge">Oliver</span>
+            <span class="badge">UC-CENDIA</span>
+            <span class="badge">Catapult</span>
+            <span class="badge">STATSports</span>
+            <span class="badge">Qualcomm</span>
+          </div>
+        </div>
+        <div class="upload-form">
+          <div class="form-group">
+            <label class="form-label">ATLETA</label>
+            <select id="upload-athlete" class="select-glass w-full">
+              <option value="">Seleccionar atleta…</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">FECHA DE SESIÓN</label>
+            <input type="date" id="upload-date" class="input-glass w-full" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">ARCHIVO CSV</label>
+            <div class="dropzone" id="dropzone" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" onclick="document.getElementById('csv-file').click()">
+              <div class="dropzone-icon">📂</div>
+              <div class="dropzone-text">Arrastra aquí tu archivo CSV o haz clic para seleccionar</div>
+              <div class="dropzone-hint" id="dropzone-filename">Formatos soportados: .csv</div>
+            </div>
+            <input type="file" id="csv-file" accept=".csv" style="display:none" onchange="handleFileSelect(event)" />
+          </div>
+          <button class="btn-primary w-full" id="btn-process" onclick="processCSV()" disabled>
+            <span>⚡</span> Procesar y Calcular IVN
+          </button>
+        </div>
+        <div id="upload-result" class="upload-result hidden"></div>
+      </section>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
+         VIEW: SETTINGS
+    ════════════════════════════════════════════════ -->
+    <div id="view-settings" class="view">
+      <section class="panel glass" style="max-width:680px; margin:0 auto;">
+        <div class="panel-header">
+          <div>
+            <div class="panel-label">CONFIGURACIÓN</div>
+            <h2 class="panel-title">Ajustes del Sistema</h2>
+          </div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-label">UMBRALES DEL ALGORITMO $IVN$</div>
+          <div class="settings-row">
+            <div class="settings-desc">
+              <div class="settings-title">Umbral IRI Crítico</div>
+              <div class="settings-hint">Valor mínimo de IRI para considerar riesgo crítico</div>
+            </div>
+            <input type="number" id="threshold-iri" class="input-glass" value="60" min="0" max="100" />
+          </div>
+          <div class="settings-row">
+            <div class="settings-desc">
+              <div class="settings-title">Umbral Lapses</div>
+              <div class="settings-hint">Número de lapsos de atención que activan alerta de coordinación</div>
+            </div>
+            <input type="number" id="threshold-lapses" class="input-glass" value="2" min="0" max="20" />
+          </div>
+          <div class="settings-row">
+            <div class="settings-desc">
+              <div class="settings-title">Umbral IRI Óptimo</div>
+              <div class="settings-hint">Valor mínimo de IRI para considerar adaptación óptima</div>
+            </div>
+            <input type="number" id="threshold-iri-opt" class="input-glass" value="85" min="0" max="100" />
+          </div>
+        </div>
+        <div class="settings-group" style="margin-top:24px;">
+          <div class="settings-label">INFORMACIÓN DEL PROYECTO</div>
+          <div class="settings-row">
+            <div class="settings-desc">
+              <div class="settings-title">Proyecto Firebase</div>
+              <div class="settings-hint">Conectado a la infraestructura de IMED Sport</div>
+            </div>
+            <span class="badge green-badge">app-imed-sport</span>
+          </div>
+        </div>
+        <button class="btn-primary" onclick="saveSettings()" style="margin-top:24px;">Guardar Configuración</button>
+      </section>
+    </div>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════
+       ATHLETE DETAIL MODAL
+  ════════════════════════════════════════════════ -->
+  <div id="athlete-modal" class="modal-overlay hidden" onclick="closeModal(event)">
+    <div class="modal-box glass" id="modal-content">
+      <!-- Filled dynamically -->
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
