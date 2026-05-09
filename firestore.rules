@@ -2,30 +2,30 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // RESTAURACIÓN DE COMPATIBILIDAD: Permite lectura pública para el dashboard antiguo
+    // ─── 1. ONBOARDING & ATLETAS (SOLO LECTURA) ───
+    // La creación y edición ocurre solo en la App Móvil.
+    // El Dashboard SaaS consume estos datos como 'Source of Truth'.
     match /athletes/{athleteId} {
-      allow read: if true; 
-      allow write: if request.auth != null; // Protegemos la escritura
+      allow read: if true;
+      allow write: if false; 
       
       match /measurements/{measurementId} {
         allow read: if true;
-        allow write: if request.auth != null;
+        allow write: if false;
       }
     }
 
-    // Colección de configuraciones (necesaria para el dashboard antiguo)
-    match /settings/{settingId} {
+    // ─── 2. ANÁLISIS DIARIO (LECTURA/ESCRITURA) ───
+    // Colección maestra donde el Motor IVN y el Dashboard consolidan resultados.
+    match /Daily_Performance/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
-    }
-
-    // Nueva colección IMED Predictor
-    match /Daily_Performance/{performanceId} {
-      allow read, write: if true; // Permitimos lectura pública temporalmente para facilitar la transición
+      allow write: if true; 
     }
     
+    // ─── 3. REGLA POR DEFECTO ───
     match /{document=**} {
-      allow read, write: if false;
+      allow read: if true;
+      allow write: if false;
     }
   }
 }

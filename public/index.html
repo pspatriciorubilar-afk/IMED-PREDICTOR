@@ -13,7 +13,10 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-  <link rel="stylesheet" href="style.css" />
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
+  <script src="gps_brands.js"></script>
+  <link rel="stylesheet" href="style.css?v=1.0.2" />
 </head>
 <body>
   <!-- ═══════════════════════════════════════════════
@@ -256,14 +259,9 @@
           </div>
         </div>
         <div class="upload-info">
-          <p>El sistema es <strong>agnóstico al hardware</strong>. Acepta archivos exportados desde:</p>
-          <div class="badges-row">
-            <span class="badge">Oliver</span>
-            <span class="badge">UC-CENDIA</span>
-            <span class="badge">Catapult</span>
-            <span class="badge">STATSports</span>
-            <span class="badge">Qualcomm</span>
-          </div>
+          <p>El sistema es <strong>agnóstico al hardware</strong>. Selecciona tu marca GPS o deja la detección automática:</p>
+          <div id="gps-brand-selector" class="gps-brand-grid"></div>
+          <div id="brand-info-box" class="brand-info-box" style="display:none"></div>
         </div>
         <div class="upload-form">
           <div class="form-group">
@@ -353,6 +351,6 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=1.0.2"></script>
 </body>
 </html>

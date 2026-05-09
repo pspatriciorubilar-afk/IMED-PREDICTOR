@@ -23,6 +23,8 @@ let allPerformance = [];
 let correlationChart = null;
 let selectedFile = null;
 let unsubscribe = null;
+let gAthletesCache = [];
+let selectedGpsBrand = 'auto'; // 'auto' = detección semántica pura
 
 // ═══════════════════════════════════════════
 // IVN ENGINE
@@ -37,12 +39,25 @@ function calcIVN(iri, lapses, externalLoad, meanLoad) {
   return   { level: 'GREEN',  label: 'ESTABLE',               action: 'Mantener',     badgeClass: 'badge-green',  ringClass: 'ring-green',  btnClass: 'green' };
 }
 
-// ═══════════════════════════════════════════
-// FIRESTORE REAL-TIME LISTENER
-// ═══════════════════════════════════════════
+// ─── Onboarding: Stream Real-time de Perfiles ───
+function startAthletesOnboarding() {
+  db.collection('athletes').onSnapshot(snap => {
+    gAthletesCache = snap.docs.map(d => {
+      const data = d.data();
+      return { 
+        id: d.id, 
+        fullName: `${data.firstName || ''} ${data.lastName || ''}`.trim() || d.id,
+        ...data 
+      };
+    });
+    console.log(`[Onboarding] ${gAthletesCache.length} atletas sincronizados.`);
+    populateAthleteAutocomplete();
+    renderAthletesTable(); // Refrescar tabla real
+  });
+}
+
+// ─── Dashboard Real-time Performance ───
 function startRealtimeListener() {
-  const today = new Date();
-  today.setHours(0,0,0,0);
   if (unsubscribe) unsubscribe();
 
   unsubscribe = db.collection('Daily_Performance')
@@ -52,7 +67,6 @@ function startRealtimeListener() {
       allPerformance = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       renderDashboard();
       renderAthletesTable();
-      populateAthleteSelects();
     }, err => {
       console.warn('Firestore listener error:', err);
       loadDemoData();
@@ -77,11 +91,16 @@ function loadDemoData() {
 // RENDER DASHBOARD
 // ═══════════════════════════════════════════
 function renderDashboard() {
-  const meanLoad = allPerformance.reduce((s,p) => s + (p.gps?.decel_high||0), 0) / (allPerformance.length||1);
+  const getLoad = p => p.gps?.decel_z5 || p.gps?.decel_high || 0;
+  const meanLoad = allPerformance.reduce((s,p) => s + getLoad(p), 0) / (allPerformance.length||1);
   let counts = { RED:0, YELLOW:0, GREEN:0 };
 
   const items = allPerformance.map(p => {
-    const ivn = calcIVN(p.iri||0, p.lapses||0, p.gps?.decel_high||0, meanLoad);
+    const savedLevel = p.risk_level || null;
+    const ivn = savedLevel
+      ? { level: savedLevel, label: p.ivn_label || savedLevel, action: p.action || 'mantener',
+          badgeClass: `badge-${savedLevel.toLowerCase()}`, ringClass: `ring-${savedLevel.toLowerCase()}`, btnClass: savedLevel.toLowerCase() }
+      : calcIVN(p.iri||0, p.lapses||0, getLoad(p), meanLoad);
     counts[ivn.level]++;
     const initials = (p.athleteName||'?').split(' ').map(w=>w[0]).join('').slice(0,2);
     return `
@@ -104,8 +123,8 @@ function renderDashboard() {
             <div class="lbl">LAPSES</div>
           </div>
           <div class="metric-mini">
-            <div class="val">${p.gps?.decel_high||0}</div>
-            <div class="lbl">DESACEL.</div>
+            <div class="val">${getLoad(p)}</div>
+            <div class="lbl">Z5</div>
           </div>
         </div>
         <span class="risk-badge ${ivn.badgeClass}">${ivn.label}</span>
@@ -116,7 +135,6 @@ function renderDashboard() {
   document.getElementById('athlete-list').innerHTML = items.length
     ? items.join('') : '<div class="empty-state"><div class="empty-icon">✓</div><p>Sin datos de hoy</p></div>';
 
-  // KPIs
   document.getElementById('kpi-critical').textContent    = counts.RED;
   document.getElementById('kpi-coordination').textContent = counts.YELLOW;
   document.getElementById('kpi-optimal').textContent     = counts.GREEN;
@@ -128,9 +146,6 @@ function renderDashboard() {
   updateChart();
 }
 
-// ═══════════════════════════════════════════
-// CORRELATION CHART (IRI vs Desaceleraciones)
-// ═══════════════════════════════════════════
 function updateChart() {
   const meanLoad = allPerformance.reduce((s,p) => s+(p.gps?.decel_high||0),0) / (allPerformance.length||1);
   const datasets = { RED:[], YELLOW:[], GREEN:[] };
@@ -167,41 +182,47 @@ function updateChart() {
   correlationChart = new Chart(canvas, cfg);
 }
 
-// ═══════════════════════════════════════════
-// ATHLETES TABLE
-// ═══════════════════════════════════════════
 function renderAthletesTable(filter='') {
-  const meanLoad = allPerformance.reduce((s,p)=>s+(p.gps?.decel_high||0),0)/(allPerformance.length||1);
-  const rows = allPerformance
-    .filter(p => !filter || (p.athleteName||'').toLowerCase().includes(filter.toLowerCase()))
-    .map(p => {
-      const ivn = calcIVN(p.iri||0, p.lapses||0, p.gps?.decel_high||0, meanLoad);
-      const d = new Date((p.timestamp?.seconds||0)*1000).toLocaleDateString('es-CL');
-      return `<tr onclick="openModal('${p.id}')">
-        <td><strong>${p.athleteName||p.athleteId}</strong></td>
-        <td>${p.position||'—'}</td>
-        <td class="${p.iri<THRESH.iriCritical?'text-red':p.iri>THRESH.iriOptimal?'text-green':'text-yellow'}">${Math.round(p.iri||0)}</td>
-        <td class="${(p.lapses||0)>THRESH.lapses?'text-red':'text-green'}">${p.lapses||0}</td>
-        <td>${p.gps?.decel_high||0}</td>
-        <td>${p.gps?.max_speed||0} km/h</td>
-        <td><span class="risk-badge ${ivn.badgeClass}">${ivn.label}</span></td>
-        <td>${d}</td>
+  const rows = gAthletesCache
+    .filter(a => !filter || a.fullName.toLowerCase().includes(filter.toLowerCase()))
+    .map(a => {
+      const p = allPerformance.find(x => x.athleteId === a.id);
+      const hasData = !!p;
+      
+      return `<tr onclick="openModal('${hasData ? p.id : a.id}', ${!hasData})">
+        <td><strong>${a.fullName}</strong></td>
+        <td>${a.position || '—'}</td>
+        <td class="${hasData ? (p.iri < THRESH.iriCritical ? 'text-red' : 'text-green') : 'text-muted'}">
+          ${hasData ? Math.round(p.iri) : 'Pendiente'}
+        </td>
+        <td class="${hasData ? (p.lapses > THRESH.lapses ? 'text-red' : 'text-green') : 'text-muted'}">
+          ${hasData ? p.lapses : '—'}
+        </td>
+        <td>${hasData ? p.gps?.decel_z5 || 0 : '—'}</td>
+        <td>${hasData ? (p.risk_level === 'GREEN' ? '🟢' : p.risk_level === 'RED' ? '🔴' : '🟡') : '⚪'}</td>
+        <td>
+          <span class="risk-badge ${hasData ? 'badge-blue' : 'badge-gray'}">
+            ${hasData ? 'VINCULADO' : 'SIN REGISTRO'}
+          </span>
+        </td>
+        <td><button class="btn-mini" onclick="event.stopPropagation(); showView('upload'); document.getElementById('upload-athlete').value='${a.id}'">Vincular GPS</button></td>
       </tr>`;
     });
 
-  document.getElementById('athletes-table-container').innerHTML = rows.length
-    ? `<table class="athletes-table"><thead><tr>
-        <th>ATLETA</th><th>POSICIÓN</th><th>IRI</th><th>LAPSES</th>
-        <th>DESACEL.</th><th>VEL. MÁX</th><th>ESTADO IVN</th><th>FECHA</th>
-      </tr></thead><tbody>${rows.join('')}</tbody></table>`
-    : '<div class="empty-state"><div class="empty-icon">🔍</div><p>No se encontraron atletas</p></div>';
+  document.getElementById('athletes-table-container').innerHTML = `
+    <table class="athletes-table">
+      <thead>
+        <tr>
+          <th>ATLETA (SNC)</th><th>POSICIÓN</th><th>IRI</th><th>LAPSES</th>
+          <th>Z5</th><th>RIESGO</th><th>ESTADO</th><th>ACCIÓN</th>
+        </tr>
+      </thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>`;
 }
 
 function filterAthletes(v) { renderAthletesTable(v); }
 
-// ═══════════════════════════════════════════
-// ATHLETE MODAL
-// ═══════════════════════════════════════════
 function openModal(id) {
   const p = allPerformance.find(x => x.id === id);
   if (!p) return;
@@ -265,39 +286,6 @@ function closeModal(e) {
   }
 }
 
-// ═══════════════════════════════════════════
-// CSV UPLOAD & IVN CALCULATION (client-side)
-// ═══════════════════════════════════════════
-const GPS_COLUMN_MAP = {
-  accel_high:      ['accel_high','High Accels','Aceleraciones Altas','HighAccel','high_accel'],
-  decel_high:      ['decel_high','High Decels','Desaceleraciones Altas','HighDecel','high_decel'],
-  max_speed:       ['max_speed','Max Speed','Velocidad Máxima','MaxSpeed','vel_max'],
-  sprint_distance: ['sprint_distance','Sprint Distance','Distancia Sprint','SprintDist','dist_sprint']
-};
-
-function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) throw new Error('CSV vacío o inválido');
-  const headers = lines[0].split(',').map(h=>h.trim());
-  const rows = [];
-  for (let i=1; i<lines.length; i++) {
-    const vals = lines[i].split(',');
-    const row = {};
-    headers.forEach((h,j) => row[h] = (vals[j]||'').trim());
-    rows.push(row);
-  }
-  return { headers, rows };
-}
-
-function mapGPSColumns(headers, row) {
-  const out = {};
-  for (const [std, aliases] of Object.entries(GPS_COLUMN_MAP)) {
-    const col = aliases.find(a => headers.includes(a));
-    out[std] = col ? parseFloat(row[col])||0 : 0;
-  }
-  return out;
-}
-
 function handleDragOver(e) { e.preventDefault(); document.getElementById('dropzone').classList.add('drag-over'); }
 function handleDragLeave()  { document.getElementById('dropzone').classList.remove('drag-over'); }
 function handleDrop(e) {
@@ -315,7 +303,6 @@ function setFile(file) {
 
 async function processCSV() {
   if (!selectedFile) return;
-  
   const athleteId = document.getElementById('upload-athlete').value;
   const date      = document.getElementById('upload-date').value || new Date().toISOString().slice(0,10);
   
@@ -328,17 +315,20 @@ async function processCSV() {
   document.getElementById('btn-process').disabled = true;
 
   try {
-    // 1. Subir a Firebase Storage
     const storageRef = firebase.storage().ref();
     const filePath = `gps/${athleteId}/${date}/${selectedFile.name}`;
     const fileRef = storageRef.child(filePath);
-    
     await fileRef.put(selectedFile);
-    console.log('Archivo subido a:', filePath);
 
-    // 2. Llamar a la Cloud Function para procesar
     const processFn = firebase.functions().httpsCallable('process_gps_csv');
-    const result = await processFn({ filePath: filePath });
+    const brandData = GPS_BRANDS_DB[selectedGpsBrand] || GPS_BRANDS_DB['auto'];
+    const brandHints = brandData.metrics || null;
+    
+    const result = await processFn({ 
+      filePath: filePath,
+      gpsBrand: selectedGpsBrand,
+      brandHints: brandHints
+    });
     
     const data = result.data;
     if (data.status === 'success') {
@@ -351,7 +341,6 @@ async function processCSV() {
     } else {
       throw new Error(data.message || 'Error desconocido en el motor');
     }
-
   } catch (err) {
     console.error(err);
     showUploadResult('error', `Error: ${err.message}`);
@@ -361,25 +350,63 @@ async function processCSV() {
   }
 }
 
+function initGpsBrandSelector() {
+  const container = document.getElementById('gps-brand-selector');
+  if (!container || !GPS_BRANDS_DB) return;
+
+  container.innerHTML = Object.values(GPS_BRANDS_DB).map(brand => `
+    <div class="gps-brand-card ${brand.id === selectedGpsBrand ? 'selected' : ''}" 
+         id="brand-${brand.id}"
+         onclick="selectGpsBrand('${brand.id}')"
+         title="${brand.description}">
+      <div class="brand-logo" style="background: ${brand.color}22; border-color: ${brand.color}44">
+        <span class="brand-emoji">${brand.logo}</span>
+      </div>
+      <div class="brand-name">${brand.name}</div>
+      <div class="brand-model">${brand.model}</div>
+    </div>
+  `).join('');
+}
+
+function selectGpsBrand(brandId) {
+  selectedGpsBrand = brandId;
+  document.querySelectorAll('.gps-brand-card').forEach(el => el.classList.remove('selected'));
+  const card = document.getElementById(`brand-${brandId}`);
+  if (card) card.classList.add('selected');
+  const brand = GPS_BRANDS_DB[brandId];
+  if (brand) {
+    const info = document.getElementById('brand-info-box');
+    if (info) {
+      info.innerHTML = `
+        <span style="color:${brand.color}">${brand.logo} <strong>${brand.name} — ${brand.model}</strong></span><br>
+        <small>${brand.description} · ${brand.region}</small>
+        ${brand.metrics ? `<br><small style="opacity:0.6">Motor IVN priorizará columnas de ${brand.name}. La detección semántica cubre el resto.</small>` : '<br><small style="opacity:0.6">🤖 Modo automático: el motor analizará el CSV sin hints previos.</small>'}
+      `;
+      info.style.display = 'block';
+    }
+  }
+}
+
 function showUploadResult(type, html) {
   const el = document.getElementById('upload-result');
+  if (!el) return;
   el.className = `upload-result ${type}`;
   el.innerHTML = `<strong>${type==='success'?'✓ Éxito':'✕ Error'}:</strong> ${html}`;
   el.classList.remove('hidden');
 }
 
-// ═══════════════════════════════════════════
-// NEURO-REPORTS
-// ═══════════════════════════════════════════
-function populateAthleteSelects() {
-  const unique = [...new Map(allPerformance.map(p=>[p.athleteId,p])).values()];
-  ['report-athlete-select','upload-athlete'].forEach(id => {
+function populateAthleteAutocomplete() {
+  const selects = ['report-athlete-select', 'upload-athlete'];
+  selects.forEach(id => {
     const sel = document.getElementById(id);
+    if (!sel) return;
     const cur = sel.value;
-    sel.innerHTML = `<option value="">Seleccionar atleta…</option>`;
-    unique.forEach(p => {
+    sel.innerHTML = `<option value="">Seleccionar Atleta (Neuro-evaluación)…</option>`;
+    const sorted = [...gAthletesCache].sort((a,b) => a.fullName.localeCompare(b.fullName));
+    sorted.forEach(p => {
       const opt = document.createElement('option');
-      opt.value = p.athleteId; opt.textContent = p.athleteName || p.athleteId;
+      opt.value = p.id; 
+      opt.textContent = `${p.fullName} (${p.position || 'N/A'})`;
       sel.appendChild(opt);
     });
     if (cur) sel.value = cur;
@@ -418,23 +445,20 @@ function loadAthleteReport(athleteId) {
   });
 }
 
-// ═══════════════════════════════════════════
-// NAVIGATION
-// ═══════════════════════════════════════════
 const VIEWS = ['dashboard','athletes','reports','upload','settings'];
 const TITLES = { dashboard:'Centro de Mando de Rendimiento', athletes:'Gestión de Plantilla', reports:'Historial de Neuro-evaluaciones', upload:'Adaptador Universal GPS', settings:'Configuración del Sistema' };
 
 function showView(name) {
   VIEWS.forEach(v => {
-    document.getElementById(`view-${v}`).classList.toggle('active', v===name);
-    document.getElementById(`nav-${v}`)?.classList.toggle('active', v===name);
+    const viewEl = document.getElementById(`view-${v}`);
+    const navEl = document.getElementById(`nav-${v}`);
+    if (viewEl) viewEl.classList.toggle('active', v===name);
+    if (navEl) navEl.classList.toggle('active', v===name);
   });
-  document.getElementById('page-title').textContent = TITLES[name]||name;
+  const titleEl = document.getElementById('page-title');
+  if (titleEl) titleEl.textContent = TITLES[name]||name;
 }
 
-// ═══════════════════════════════════════════
-// SETTINGS
-// ═══════════════════════════════════════════
 function saveSettings() {
   THRESH.iriCritical = parseInt(document.getElementById('threshold-iri').value)||60;
   THRESH.lapses      = parseInt(document.getElementById('threshold-lapses').value)||2;
@@ -443,9 +467,6 @@ function saveSettings() {
   showToast('success','✓ Guardado','Umbrales del algoritmo $IVN$ actualizados');
 }
 
-// ═══════════════════════════════════════════
-// TOAST NOTIFICATIONS
-// ═══════════════════════════════════════════
 function showToast(type, title, sub) {
   const icons = { success:'✓', error:'✕', info:'ℹ' };
   const t = document.createElement('div');
@@ -455,16 +476,19 @@ function showToast(type, title, sub) {
   setTimeout(()=>t.remove(), 4000);
 }
 
-// ═══════════════════════════════════════════
-// REFRESH
-// ═══════════════════════════════════════════
 function refreshData() { showToast('info','↻ Actualizando','Sincronizando con Firebase…'); }
 
-// ═══════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('live-date').textContent = new Date().toLocaleDateString('es-CL',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-  document.getElementById('upload-date').value = new Date().toISOString().slice(0,10);
+  // Nuclear Scroll Fix: Force scroll visibility
+  document.documentElement.style.setProperty('overflow-y', 'auto', 'important');
+  document.body.style.setProperty('overflow-y', 'auto', 'important');
+  document.body.style.setProperty('height', 'auto', 'important');
+
+  const liveDateEl = document.getElementById('live-date');
+  if (liveDateEl) liveDateEl.textContent = new Date().toLocaleDateString('es-CL',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const uploadDateEl = document.getElementById('upload-date');
+  if (uploadDateEl) uploadDateEl.value = new Date().toISOString().slice(0,10);
   startRealtimeListener();
+  startAthletesOnboarding();
+  initGpsBrandSelector();
 });
