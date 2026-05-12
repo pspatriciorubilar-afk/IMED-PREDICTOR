@@ -140,10 +140,13 @@ function calcIVN(p) { return getUnifiedStatus(p); }
 function renderDashboard() {
     const container = document.getElementById('athlete-list');
     if (!container) return;
-    const today = new Date().toISOString().split('T')[0];
+    // Usar fecha local para evitar desfases UTC
+    const today = new Date().toLocaleDateString('en-CA'); 
     const latest = {};
     
+    let todayEvalsCount = 0;
     allPerformance.forEach(p => { 
+        if (p.date === today) todayEvalsCount++;
         const aid = String(p.athleteId || "").trim();
         if (aid && !latest[aid]) latest[aid] = p;
     });
@@ -178,14 +181,14 @@ function renderDashboard() {
             </div>`;
     }).join('') : '<div class="empty-state">No hay evaluaciones registradas hoy.</div>';
     
-    document.getElementById('count-critical').textContent = counts.RED;
-    document.getElementById('count-warning').textContent = counts.YELLOW;
-    document.getElementById('count-optimal').textContent = counts.GREEN;
+    if(document.getElementById('count-critical')) document.getElementById('count-critical').textContent = counts.RED;
+    if(document.getElementById('count-warning')) document.getElementById('count-warning').textContent = counts.YELLOW;
+    if(document.getElementById('count-optimal')) document.getElementById('count-optimal').textContent = counts.GREEN;
     
-    document.getElementById('kpi-critical').textContent = counts.RED;
-    document.getElementById('kpi-coordination').textContent = counts.YELLOW;
-    document.getElementById('kpi-optimal').textContent = counts.GREEN;
-    document.getElementById('kpi-total').textContent = latestList.filter(x => x.date === today).length;
+    if(document.getElementById('kpi-critical')) document.getElementById('kpi-critical').textContent = counts.RED;
+    if(document.getElementById('kpi-coordination')) document.getElementById('kpi-coordination').textContent = counts.YELLOW;
+    if(document.getElementById('kpi-optimal')) document.getElementById('kpi-optimal').textContent = counts.GREEN;
+    if(document.getElementById('kpi-total')) document.getElementById('kpi-total').textContent = todayEvalsCount;
 
     updateChart();
 }
