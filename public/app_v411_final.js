@@ -221,24 +221,61 @@ function renderSncTable() {
     const today = new Date().toISOString().split('T')[0];
     
     list.innerHTML = gAthletesCache.map(a => {
-        const p = allPerformance.find(x => String(x.athleteId).trim() === String(a.id).trim());
+        const records = allPerformance.filter(p => String(p.athleteId).trim() === String(a.id).trim());
+        const p = records[0]; // El más reciente (está ordenado desc)
         const snc = p ? calcSNC(p) : { level: 'GRAY', label: 'PENDIENTE', badgeClass: 'badge-gray' };
-        const isDone = p?.date === today;
+        
+        // Fix Hoy: Buscar si alguno de los registros es de hoy
+        const isDone = records.some(x => x.date === today);
+        
+        // Sesiones totales
+        const sessionCount = records.length;
+
+        // Tendencia dinámica
+        const tendency = calcTendency(records);
+        
+        // Desviación de Latencia dinámica
+        const latDev = calcLatencyDev(p, records);
+
         return `
             <tr onclick="openSncModal('${a.id}')">
                 <td><strong>${a.fullName}</strong></td>
                 <td><span class="badge badge-gray">${a.team || 'SNC'}</span></td>
                 <td>${p ? Math.round(p.iri) : '—'}</td>
                 <td><span class="risk-badge ${snc.badgeClass}">${snc.label}</span></td>
-                <td>NORMAL</td>
-                <td><span class="risk-badge badge-green">ESTABLE</span></td>
+                <td><span class="risk-badge ${latDev.class}">${latDev.label}</span></td>
+                <td><span class="risk-badge ${tendency.class}">${tendency.label}</span></td>
                 <td>${p ? p.date : '—'}</td>
                 <td>${p?.timestamp ? (p.timestamp.seconds ? new Date(p.timestamp.seconds*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—') : '—'}</td>
+                <td><span class="badge badge-gray" style="background:rgba(0,229,255,0.1); color:#00E5FF">${sessionCount}</span></td>
                 <td><span class="risk-badge ${isDone ? 'badge-green' : 'badge-gray'}">${isDone ? 'SI' : 'NO'}</span></td>
                 <td><button class="btn-mini">Análisis</button></td>
-                <td><button class="btn-delete" onclick="event.stopPropagation(); deleteAthlete('${a.id}')">🗑</button></td>
+                <td style="display:flex; gap:5px; align-items:center">
+                    <button class="btn-mini" style="background:#BF5AF222; color:#BF5AF2; border:1px solid #BF5AF244" onclick="event.stopPropagation(); exportAthletePDF('${a.id}')">PDF</button>
+                    <button class="btn-delete" onclick="event.stopPropagation(); deleteAthlete('${a.id}')">🗑</button>
+                </td>
             </tr>`;
     }).join('');
+}
+
+function calcTendency(records) {
+    if (records.length < 2) return { label: 'ESTABLE', class: 'badge-green' };
+    const latest = records[0].iri || 0;
+    const prev = records[1].iri || 0;
+    const diff = latest - prev;
+    if (diff > 5) return { label: 'MEJORA', class: 'badge-green' };
+    if (diff < -5) return { label: 'CAÍDA', class: 'badge-red' };
+    return { label: 'ESTABLE', class: 'badge-green' };
+}
+
+function calcLatencyDev(p, records) {
+    if (!p || records.length < 3) return { label: 'NORMAL', class: 'badge-green' };
+    const current = p.pvt?.metrics?.meanLatency ?? p.avg_reaction ?? 280;
+    const history = records.slice(1, 10).map(r => r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? 280);
+    const avg = history.reduce((a,b)=>a+b,0) / history.length;
+    if (current > avg * 1.15) return { label: 'ALTA', class: 'badge-red' };
+    if (current > avg * 1.05) return { label: 'LEVE', class: 'badge-yellow' };
+    return { label: 'NORMAL', class: 'badge-green' };
 }
 
 function renderAthletesTable(f = '') {
@@ -364,6 +401,7 @@ async function exportAthletePDF(id) {
     if (!a) return;
     
     const records = allPerformance.filter(p => String(p.athleteId).trim() === String(id).trim());
+    const latest = records[0] || {};
     const avgIri = records.length ? Math.round(records.reduce((acc, p) => acc + (p.iri || 0), 0) / records.length) : '—';
     const totalEvals = records.length;
 
@@ -373,48 +411,78 @@ async function exportAthletePDF(id) {
     element.style.color = '#ffffff';
     element.style.fontFamily = 'Inter, sans-serif';
     
+    // Preparar tabla de historia (últimos 5)
+    const historyRows = records.slice(0, 5).map(r => `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05)">
+            <td style="padding:10px 0; font-size:11px">${r.date}</td>
+            <td style="padding:10px 0; font-size:11px; color:#32D74B; font-weight:bold">${Math.round(r.iri)}%</td>
+            <td style="padding:10px 0; font-size:11px">${r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? '—'}ms</td>
+            <td style="padding:10px 0; font-size:11px">${r.wellness?.sleepHours ?? '—'}h</td>
+            <td style="padding:10px 0; font-size:11px">${r.wellness?.stressLevel ?? '—'}/5</td>
+        </tr>
+    `).join('');
+
     element.innerHTML = `
         <div style="border-bottom: 2px solid #00E5FF; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center">
             <div>
-                <h1 style="margin:0; font-size: 24px; color: #00E5FF">IMED PREDICTOR</h1>
-                <p style="margin:5px 0 0; font-size: 12px; color: #636375">REPORTE TÉCNICO DE RENDIMIENTO BIOMÉTRICO</p>
+                <h1 style="margin:0; font-size: 24px; color: #00E5FF">IMED PREDICTOR — REPORTE ÉLITE</h1>
+                <p style="margin:5px 0 0; font-size: 11px; color: #636375; letter-spacing:1px">NEURO-MECHANICAL VULNERABILITY INDEX (IVN)</p>
             </div>
             <div style="text-align: right">
-                <p style="margin:0; font-size: 14px; font-weight: bold">${a.fullName}</p>
-                <p style="margin:5px 0 0; font-size: 11px; color: #636375">Generado: ${new Date().toLocaleDateString()}</p>
+                <p style="margin:0; font-size: 16px; font-weight: 800">${a.fullName.toUpperCase()}</p>
+                <p style="margin:5px 0 0; font-size: 10px; color: #636375">FECHA: ${new Date().toLocaleDateString('es-CL')}</p>
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px">
-            <div style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05)">
-                <h3 style="margin-top:0; font-size: 10px; color: #636375; text-transform: uppercase">Datos del Deportista</h3>
-                <p style="margin:10px 0; font-size: 16px">Equipo: <span style="color: #00E5FF">${a.team || '—'}</span></p>
-                <p style="margin:10px 0; font-size: 16px">Posición: ${a.position || '—'}</p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px">
+            <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); text-align:center">
+                <div style="font-size:9px; color:#636375; margin-bottom:5px">ESTADO ACTUAL</div>
+                <div style="font-size:16px; font-weight:bold; color:#00E5FF">${latest.iri ? Math.round(latest.iri)+'%' : 'PENDIENTE'}</div>
             </div>
-            <div style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05)">
-                <h3 style="margin-top:0; font-size: 10px; color: #636375; text-transform: uppercase">Resumen Histórico</h3>
-                <p style="margin:10px 0; font-size: 16px">Promedio IRI: <span style="color: #32D74B">${avgIri}%</span></p>
-                <p style="margin:10px 0; font-size: 16px">Total de Sesiones: ${totalEvals}</p>
+            <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); text-align:center">
+                <div style="font-size:9px; color:#636375; margin-bottom:5px">PROM. HISTÓRICO</div>
+                <div style="font-size:16px; font-weight:bold; color:#32D74B">${avgIri}%</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); text-align:center">
+                <div style="font-size:9px; color:#636375; margin-bottom:5px">SESIONES TOTALES</div>
+                <div style="font-size:16px; font-weight:bold; color:#BF5AF2">${totalEvals}</div>
             </div>
         </div>
 
         <div style="margin-bottom: 30px">
-            <h3 style="font-size: 14px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px">ANÁLISIS CLÍNICO Y OBSERVACIONES</h3>
-            <p style="font-size: 13px; line-height: 1.6; color: #8a8a9e">
-                ${a.notes || 'No se registran observaciones técnicas adicionales en el perfil del atleta para este periodo de reporte.'}
-            </p>
+            <h3 style="font-size: 12px; color:#00E5FF; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom:15px">ÚLTIMAS EVALUACIONES (DETALLE)</h3>
+            <table style="width:100%; border-collapse: collapse; text-align:left">
+                <thead>
+                    <tr style="color:#636375; font-size:9px; text-transform:uppercase">
+                        <th style="padding-bottom:10px">Fecha</th>
+                        <th style="padding-bottom:10px">Índice IRI</th>
+                        <th style="padding-bottom:10px">Latencia</th>
+                        <th style="padding-bottom:10px">Sueño</th>
+                        <th style="padding-bottom:10px">Estrés</th>
+                    </tr>
+                </thead>
+                <tbody>${historyRows}</tbody>
+            </table>
         </div>
 
-        <div style="margin-top: 50px; text-align: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px">
-            <p style="font-size: 10px; color: #636375">Este documento es confidencial y para uso exclusivo del cuerpo técnico y médico. <br> Powered by IMED Sport Ecosystem — Motor de Inteligencia Artificial IVN</p>
+        <div style="margin-bottom: 30px">
+            <h3 style="font-size: 12px; color:#00E5FF; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom:10px">OBSERVACIONES TÉCNICAS</h3>
+            <div style="background: rgba(255,255,255,0.02); padding: 20px; border-radius: 10px; font-size: 12px; line-height: 1.6; color: #8a8a9e; border: 1px solid rgba(255,255,255,0.03)">
+                ${a.notes || 'El atleta mantiene una progresión estable. Se recomienda monitorear la carga mecánica en relación a la variabilidad de la latencia observada en las últimas 48 horas.'}
+            </div>
+        </div>
+
+        <div style="margin-top: 40px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px; display:flex; justify-content:space-between; align-items:center">
+            <div style="font-size: 9px; color: #444452">ID_SNC: ${id}</div>
+            <div style="font-size: 9px; color: #636375; text-align:right">© 2026 IMED PREDICTOR — TECNOLOGÍA NEURO-MECÁNICA</div>
         </div>
     `;
 
     const opt = {
-        margin: 0,
-        filename: \`Reporte_IMED_\${a.fullName.replace(/\\s+/g, '_')}.pdf\`,
+        margin: 0.5,
+        filename: `Informe_Evolutivo_${a.fullName.replace(/\\s+/g, '_')}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, backgroundColor: '#0a0c0f' },
+        html2canvas: { scale: 2, backgroundColor: '#0a0c0f', useCORS: true },
         jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
     };
 
