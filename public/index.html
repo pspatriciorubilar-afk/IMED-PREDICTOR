@@ -254,25 +254,20 @@
          VIEW: ATHLETES
     ════════════════════════════════════════════════ -->
     <div id="view-athletes" class="view">
-      <section class="panel glass">
-        <div class="panel-header">
-          <div>
-            <div class="panel-label">GESTIÓN DE PLANTILLA</div>
-            <h2 class="panel-title">Perfiles de Atletas</h2>
-          </div>
-          <input type="text" id="search-athlete" class="search-input" placeholder="Buscar atleta…" oninput="filterAthletes(this.value)" />
+      <header class="view-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px">
+        <div class="view-title-group">
+          <div class="view-label">GESTIÓN DE PLANTILLA</div>
+          <h1 class="view-title">Ecosistema de Equipos</h1>
         </div>
-        <div id="athletes-table-container" class="table-container">
-          <table class="athletes-table">
-            <thead>
-              <tr><th>ATLETA</th><th>EQUIPO</th><th>POSICIÓN</th><th>FECHA NAC.</th><th>FICHA</th><th>BORRAR</th></tr>
-            </thead>
-            <tbody id="athletes-table-list">
-              <!-- Dynamic -->
-            </tbody>
-          </table>
+        <div style="display:flex; gap:12px; align-items:center">
+          <button class="btn-primary" onclick="alert('Funcionalidad: Para crear un equipo, asigne el nombre del nuevo equipo en la Ficha Individual de un deportista.')" style="background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue); padding: 10px 20px">+ Nueva Plantilla</button>
+          <input type="text" id="search-athlete" class="search-input" placeholder="Buscar atleta o equipo…" oninput="filterAthletes(this.value)" style="width:250px" />
         </div>
-      </section>
+      </header>
+
+      <div id="athletes-grouped-container">
+        <!-- Renderizado dinámico agrupado por equipos -->
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════

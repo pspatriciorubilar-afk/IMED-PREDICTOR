@@ -242,35 +242,135 @@ function renderSncTable() {
 }
 
 function renderAthletesTable(f = '') {
-    const list = document.getElementById('athletes-table-list');
-    if (!list) return;
-    list.innerHTML = gAthletesCache.filter(a => a.fullName.toLowerCase().includes(f.toLowerCase())).map(a => `
-        <tr onclick="openAthleteProfile('${a.id}')">
-            <td><strong>${a.fullName}</strong></td>
-            <td><span class="badge badge-gray">${a.team || 'General'}</span></td>
-            <td>${a.position || '—'}</td>
-            <td>${a.birthdate || '—'}</td>
-            <td><button class="btn-mini" onclick="event.stopPropagation(); openAthleteProfile('${a.id}')">Ficha</button></td>
-            <td><button class="btn-delete" onclick="event.stopPropagation(); deleteAthlete('${a.id}')">🗑</button></td>
-        </tr>`).join('');
+    const container = document.getElementById('athletes-grouped-container');
+    if (!container) return;
+
+    // Agrupar atletas por equipo
+    const grouped = {};
+    gAthletesCache.filter(a => a.fullName.toLowerCase().includes(f.toLowerCase()) || (a.team || '').toLowerCase().includes(f.toLowerCase())).forEach(a => {
+        const teamName = a.team || 'SIN EQUIPO / GENERAL';
+        if (!grouped[teamName]) grouped[teamName] = [];
+        grouped[teamName].push(a);
+    });
+
+    const teams = Object.keys(grouped).sort();
+
+    container.innerHTML = teams.length ? teams.map(team => `
+        <div class="report-card" style="margin-bottom:30px">
+            <div class="panel-header" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom:15px; margin-bottom:15px">
+                <div>
+                    <div class="panel-label">PLANTILLA</div>
+                    <h2 class="panel-title" style="color:var(--blue)">${team}</h2>
+                </div>
+                <div class="panel-label">${grouped[team].length} ATLETAS</div>
+            </div>
+            <div class="table-container">
+                <table class="athletes-table">
+                    <thead>
+                        <tr>
+                            <th>ATLETA</th>
+                            <th>ESTADO</th>
+                            <th>ÚLT. EVALUACIÓN</th>
+                            <th>ESTADO SNC</th>
+                            <th>FICHA</th>
+                            <th>BORRAR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${grouped[team].map(a => {
+                            const lastEval = allPerformance.find(p => String(p.athleteId).trim() === String(a.id).trim());
+                            const status = lastEval ? calcSNC(lastEval) : { level: 'GRAY', label: 'SIN DATOS', badgeClass: 'badge-gray' };
+                            return `
+                                <tr onclick="openAthleteProfile('${a.id}')">
+                                    <td>
+                                        <div style="display:flex; align-items:center; gap:10px">
+                                            <div class="athlete-avatar" style="width:30px; height:30px; font-size:10px">${a.fullName.charAt(0)}</div>
+                                            <strong>${a.fullName}</strong>
+                                        </div>
+                                    </td>
+                                    <td><span class="badge ${status.badgeClass}">${status.label}</span></td>
+                                    <td>${lastEval ? lastEval.date : '—'}</td>
+                                    <td>${lastEval ? `IRI: ${Math.round(lastEval.iri)}` : 'Pendiente'}</td>
+                                    <td><button class="btn-mini">Ficha Completa</button></td>
+                                    <td><button class="btn-delete" onclick="event.stopPropagation(); deleteAthlete('${a.id}')">🗑</button></td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `).join('') : '<div class="empty-state">No se encontraron atletas con ese filtro.</div>';
 }
 
 function filterAthletes(v) { renderAthletesTable(v); }
 
 // ─── Modals ───
-function openAthleteProfile(id) {
+async function openAthleteProfile(id) {
     gActiveProfileId = id;
     const a = gAthletesCache.find(x => x.id === id);
     if (!a) return;
+
+    // Calcular estadísticas históricas para enriquecer la ficha
+    const records = allPerformance.filter(p => String(p.athleteId).trim() === String(id).trim());
+    const avgIri = records.length ? Math.round(records.reduce((acc, p) => acc + (p.iri || 0), 0) / records.length) : '—';
+    const avgLat = records.length ? Math.round(records.reduce((acc, p) => acc + (p.pvt?.metrics?.meanLatency ?? p.avg_reaction ?? 0), 0) / records.length) : '—';
+    const totalEvals = records.length;
+
     document.getElementById('prof-static-name').textContent = a.fullName;
-    document.getElementById('prof-static-pos').textContent = a.position || '—';
+    document.getElementById('prof-static-pos').textContent = a.position || 'Deportista de Élite';
+    
     document.getElementById('tab-container-ficha').innerHTML = `
-        <div class="grid-2col" style="margin-top:20px">
-            <div class="panel glass"><div class="panel-label">EQUIPO</div><div class="panel-title">${a.team || '—'}</div></div>
-            <div class="panel glass"><div class="panel-label">ESTADO</div><div class="panel-title">ACTIVO</div></div>
+        <div class="grid-2col" style="margin-top:20px; gap:15px">
+            <div class="panel glass" style="border-left: 3px solid var(--blue)">
+                <div class="panel-label">EQUIPO ACTUAL</div>
+                <div class="panel-title">${a.team || 'Sin Equipo'}</div>
+                <button class="btn-mini" onclick="promptTeamChange('${a.id}', '${a.team || ''}')" style="margin-top:10px; width:100%">⚙️ Cambiar Plantilla</button>
+            </div>
+            <div class="panel glass" style="border-left: 3px solid var(--green)">
+                <div class="panel-label">ESTADO DE SALUD</div>
+                <div class="panel-title">DISPONIBLE</div>
+            </div>
         </div>
-        <div class="panel glass" style="margin-top:20px"><div class="panel-label">NOTAS</div><p>${a.notes || 'Sin observaciones.'}</p></div>`;
+
+        <div class="panel-header" style="margin-top:25px">
+            <div>
+                <div class="panel-label">MÉTRICAS HISTÓRICAS (PROMEDIO)</div>
+                <h2 class="panel-title">Perfil Biométrico de Rendimiento</h2>
+            </div>
+        </div>
+
+        <div class="modal-grid-stats" style="margin-top:15px">
+            <div class="stat-card-mini"><div class="val">${avgIri}</div><div class="lbl">PROM. IRI</div></div>
+            <div class="stat-card-mini"><div class="val">${avgLat}ms</div><div class="lbl">LAT. MEDIA</div></div>
+            <div class="stat-card-mini"><div class="val">${totalEvals}</div><div class="lbl">TOTAL EVALS</div></div>
+        </div>
+
+        <div class="panel glass" style="margin-top:20px">
+            <div class="panel-label">NOTAS DE SEGUIMIENTO TÉCNICO</div>
+            <p style="font-size:13px; color:var(--text-2); line-height:1.5">${a.notes || 'No hay notas técnicas registradas para este atleta. Utilice este espacio para documentar observaciones de campo o recomendaciones clínicas.'}</p>
+        </div>
+        
+        <div style="margin-top:20px; display:flex; gap:10px">
+            <button class="btn-primary" onclick="viewAthleteTrends('${a.id}')" style="flex:1; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue)">📊 Ver Análisis de Tendencia</button>
+            <button class="btn-primary" onclick="alert('Funcionalidad de exportación PDF disponible en Versión Pro')" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border)">📄 Exportar Reporte</button>
+        </div>
+    `;
     document.getElementById('athlete-profile-modal').classList.remove('hidden');
+}
+
+async function promptTeamChange(id, currentTeam) {
+    const newTeam = prompt("Ingrese el nombre de la nueva Plantilla/Equipo:", currentTeam);
+    if (newTeam !== null) {
+        try {
+            await db.collection('athletes').doc(id).update({ team: newTeam });
+            alert("Atleta re-asignado con éxito.");
+            // La recarga se activará por el listener onSnapshot
+        } catch (e) {
+            console.error(e);
+            alert("Error al actualizar el equipo.");
+        }
+    }
 }
 
 function openSncModal(id) {
