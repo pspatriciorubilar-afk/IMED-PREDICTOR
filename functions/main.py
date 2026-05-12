@@ -48,33 +48,43 @@ def process_gps_csv(req: https_fn.CallableRequest) -> dict:
         
         print(f"[GPS Adapter] Marca: '{gps_brand}' | {len(df.columns)} columnas detectadas: {list(df.columns)[:10]}")
         
-        # Reglas semánticas por defecto (motor agnóstico)
+        # Reglas semánticas por defecto (motor agnóstico con soporte multi-idioma ES/EN)
         semantic_rules = {
             "decel_z5": {
-                "must_any": ["decel", "desacel", "fren", "braking", "frena"],
-                "boost":    ["high", "alta", "altas", "intense", "z5", "max", "zone 5", "5", "hd", "count", "number", "hi"],
-                "exclude":  ["distance", "distancia", "power", "band", "low", "baja"]
+                "must_any": ["decel", "desacel", "fren", "braking", "frena", "desac", "desac."],
+                "boost":    ["high", "alta", "altas", "intense", "z5", "max", "zone 5", "5", "hd", "count", "number", "hi", "(#)"],
+                "exclude":  ["distance", "distancia", "power", "band", "low", "baja", "accel", "acel", "ace."]
             },
             "accel_high": {
-                "must_any": ["accel", "acel", "acceleration", "acelerac"],
-                "boost":    ["high", "alta", "altas", "intense", "z5", "max", "ha", "count", "number", "hi"],
-                "exclude":  ["distance", "distancia", "power", "band", "low", "baja", "decel"]
+                "must_any": ["accel", "acel", "acceleration", "acelerac", "ace", "ace."],
+                "boost":    ["high", "alta", "altas", "intense", "z5", "max", "ha", "count", "number", "hi", "(#)"],
+                "exclude":  ["distance", "distancia", "power", "band", "low", "baja", "decel", "desacel", "desac", "desac."]
             },
             "max_speed": {
-                "must_any": ["speed", "velocidad", "velocity", "vel "],
+                "must_any": ["speed", "velocidad", "velocity", "vel", "vel."],
                 "boost":    ["max", "peak", "top", "maximo", "pico", "highest", "maximum"],
                 "exclude":  ["average", "avg", "promedio", "band", "zone", "distance", "relative"]
             },
             "distance": {
-                "must_any": ["distance", "distancia", "dist"],
+                "must_any": ["distance", "distancia", "dist", "dist."],
                 "boost":    ["total", "covered", "recorrida", "m)", "meters"],
                 "exclude":  ["sprint", "high", "band", "zone"]
             },
-            "sprint_distance": {
-                "must_any": ["sprint", "esprint"],
+                "sprint_distance": {
+                "must_any": ["sprint", "esprint", "hsr", "alta vel", "high speed", "zona 5", "z5", "distancia sprint", "spr", "spr."],
                 "boost":    ["distance", "distancia", "total", "m)"],
-                "exclude":  []
+                "exclude":  [],
+                "agg":      "sum"
             }
+        }
+        
+        # Asignar tipos de agregación por métrica
+        metric_agg = {
+            "decel_z5": "sum",
+            "accel_high": "sum",
+            "max_speed": "max",
+            "distance": "sum",
+            "sprint_distance": "sum"
         }
         
         def score_column(col_lower: str, rules: dict, brand_col_hints: list = None) -> int:
@@ -112,15 +122,30 @@ def process_gps_csv(req: https_fn.CallableRequest) -> dict:
         
         # Aplicar detección inteligente a cada métrica
         gps_data = {"decel_z5": 0.0, "accel_high": 0.0, "max_speed": 0.0, "distance": 0.0, "sprint_distance": 0.0}
+        warnings = []
         
         for metric, rules in semantic_rules.items():
             col = find_best_column(metric, rules)
             if col:
                 vals = pd.to_numeric(df[col], errors="coerce").dropna()
-                gps_data[metric] = round(float(vals.mean()), 2) if not vals.empty else 0.0
-                print(f"[GPS Adapter] ✓ '{metric}' → '{col}' = {gps_data[metric]}")
+                if not vals.empty:
+                    agg_type = metric_agg.get(metric, "mean")
+                    if agg_type == "sum":
+                        gps_data[metric] = round(float(vals.sum()), 2)
+                    elif agg_type == "max":
+                        gps_data[metric] = round(float(vals.max()), 2)
+                    else:
+                        gps_data[metric] = round(float(vals.mean()), 2)
+                    print(f"[GPS Adapter] ✓ '{metric}' ({agg_type}) → '{col}' = {gps_data[metric]}")
+                else:
+                    gps_data[metric] = 0.0
+                    print(f"[GPS Adapter] ⚠ '{metric}' sin datos numéricos en '{col}'")
             else:
                 print(f"[GPS Adapter] ✗ '{metric}' no detectado.")
+                warnings.append(f"No se detectó '{metric}'")
+                
+        if warnings:
+            gps_data["warnings"] = warnings
 
 
         # 2. Asociación de Identidad y Temporalidad
@@ -164,21 +189,51 @@ def process_gps_csv(req: https_fn.CallableRequest) -> dict:
             imed_snc["iri"] = float(m.get("iri", 75))
             imed_snc["lapses"] = int(m.get("pvt", {}).get("metrics", {}).get("lapses", 0))
 
-        # 5. Algoritmo IVN (Índice de Vulnerabilidad Neuro-Mecánica)
+        # 5. Algoritmo IVN Perfeccionado (Índice de Vulnerabilidad Neuro-Mecánica)
         iri_norm = max(imed_snc["iri"], 1.0)
-        ivn_score = round((acwr * gps_data["decel_z5"]) / (iri_norm / 100), 2)
+        iri_factor = iri_norm / 100.0  # Disponibilidad biológica
+        
+        # Carga Mecánica (60/40)
+        decel_raw = gps_data.get("decel_z5", 0.0)
+        sprint_raw = gps_data.get("sprint_distance", 0.0)
+        sprint_norm = sprint_raw / 10.0  # Normalización
+        
+        load_decel = 0.6 * decel_raw
+        load_sprint = 0.4 * sprint_norm
+        carga_mec = load_decel + load_sprint
+        
+        # IVN = Carga_Mec * (ACWR / IRI)
+        ivn_score = round(carga_mec * (acwr / iri_factor), 2)
 
-        # 6. Lógica de Riesgo y Prescripción Técnica
+        # 6. Lógica de Riesgo, Safety Override y Prescripción Táctica
         risk_level = "GREEN"
         ivn_label = "ADAPTACIÓN ÓPTIMA"
-        action = "mantener"
+        action = "Mantener planificación actual."
         
-        if imed_snc["iri"] < 60 and gps_data["decel_z5"] > 15:
-            risk_level, ivn_label, action = "RED", "RIESGO CRÍTICO", "optimizar"
-        elif imed_snc["lapses"] > 2:
-            risk_level, ivn_label, action = "YELLOW", "RIESGO COORDINACIÓN", "reprogramar"
-        elif imed_snc["iri"] < 75 or acwr > 1.5:
-            risk_level, ivn_label, action = "YELLOW", "RIESGO DE CARGA", "monitorear"
+        # Determinar el driver principal de la carga
+        risk_driver = "SPRINT" if load_sprint > load_decel else "DECEL"
+        
+        # Safety Override (Control Motor)
+        if imed_snc["lapses"] > 2:
+            risk_level = "RED"
+            ivn_label = "CRÍTICO (FALLA SNC)"
+            action = "Alerta: Falla de control motor detectada. Riesgo de lesión no traumática (ligamentos). Cese inmediato de carga de alta precisión."
+        else:
+            # Lógica IVN Normal
+            if ivn_score > 30.0 or (iri_norm < 60 and carga_mec > 15):
+                risk_level = "RED"
+                ivn_label = "RIESGO CRÍTICO"
+                if risk_driver == "SPRINT":
+                    action = "Alerta: Riesgo de lesión por estiramiento. Limitar esfuerzos lineales de alta velocidad."
+                else:
+                    action = "Alerta: Riesgo de ruptura excéntrica. Evitar frenados bruscos y cambios de dirección."
+            elif ivn_score > 20.0 or acwr > 1.5 or iri_norm < 75:
+                risk_level = "YELLOW"
+                ivn_label = "ADVERTENCIA"
+                if risk_driver == "SPRINT":
+                    action = "Precaución: Sobrecarga lineal. Monitorear HSR."
+                else:
+                    action = "Precaución: Sobrecarga excéntrica. Monitorear aceleraciones/desaceleraciones."
 
         # 7. Persistencia en Daily_Performance
         doc_id = f"{athlete_id}_{date_str}"
@@ -197,14 +252,16 @@ def process_gps_csv(req: https_fn.CallableRequest) -> dict:
             "iri": imed_snc["iri"],
             "lapses": imed_snc["lapses"],
             "ivn_score": ivn_score,
+            "carga_mec": round(carga_mec, 2),
+            "risk_driver": risk_driver,
             "risk_level": risk_level,
             "ivn_label": ivn_label,
             "action": action,
             "timestamp": firestore.SERVER_TIMESTAMP,
             "processed_at": firestore.SERVER_TIMESTAMP,
             "metadata": {
-                "version": "2.0",
-                "formula": "(ACWR * Z5) / (IRI/100)",
+                "version": "3.0",
+                "formula": "Carga_Mec * (ACWR / (IRI/100))",
                 "adapter": "semantic-v2"
             }
         }
@@ -216,7 +273,8 @@ def process_gps_csv(req: https_fn.CallableRequest) -> dict:
             "ivnScore": ivn_score,
             "riskLevel": risk_level,
             "ivnLabel": ivn_label,
-            "action": action
+            "action": action,
+            "warnings": warnings
         }
 
     except Exception as e:

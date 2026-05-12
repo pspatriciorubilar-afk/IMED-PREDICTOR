@@ -6,12 +6,10 @@ service cloud.firestore {
     // La creación y edición ocurre solo en la App Móvil.
     // El Dashboard SaaS consume estos datos como 'Source of Truth'.
     match /athletes/{athleteId} {
-      allow read: if true;
-      allow write: if false; 
+      allow read, write: if true; 
       
       match /measurements/{measurementId} {
-        allow read: if true;
-        allow write: if false;
+        allow read, write: if true;
       }
     }
 

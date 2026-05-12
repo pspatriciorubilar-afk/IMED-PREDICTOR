@@ -38,6 +38,9 @@
       <li class="nav-item" id="nav-athletes" onclick="showView('athletes')">
         <span class="nav-icon">👤</span><span>Atletas</span>
       </li>
+      <li class="nav-item" id="nav-snc" onclick="showView('snc')">
+        <span class="nav-icon">🧠</span><span>Monitoreo SNC</span>
+      </li>
       <li class="nav-item" id="nav-reports" onclick="showView('reports')">
         <span class="nav-icon">📊</span><span>Neuro-Reports</span>
       </li>
@@ -207,6 +210,47 @@
     </div>
 
     <!-- ═══════════════════════════════════════════════
+         VIEW: SNC MONITORING
+    ════════════════════════════════════════════════ -->
+    <div id="view-snc" class="view">
+      <section class="panel glass">
+        <div class="panel-header">
+          <div>
+            <div class="panel-label">NEURO-RENDIMIENTO</div>
+            <h2 class="panel-title">Estado del Sistema Nervioso Central</h2>
+          </div>
+          <div style="display:flex; gap:10px">
+            <select id="snc-team-filter" class="select-glass" onchange="filterAthletesSNC()">
+              <option value="">Todas las plantillas</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="athletes-table">
+            <thead>
+              <tr>
+                <th>ATLETA</th>
+                <th>EQUIPO</th>
+                <th>IRI</th>
+                <th>ESTADO SNC</th>
+                <th>DESV. LATENCIA</th>
+                <th>TENDENCIA</th>
+                <th>ÚLT. PRUEBA</th>
+                <th>HORA</th>
+                <th>HOY</th>
+                <th>ANÁLISIS</th>
+                <th>ACCIONES</th>
+              </tr>
+            </thead>
+            <tbody id="snc-athletes-list">
+              <!-- Dynamic -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════
          VIEW: ATHLETES
     ════════════════════════════════════════════════ -->
     <div id="view-athletes" class="view">
@@ -218,8 +262,15 @@
           </div>
           <input type="text" id="search-athlete" class="search-input" placeholder="Buscar atleta…" oninput="filterAthletes(this.value)" />
         </div>
-        <div id="athletes-table-container">
-          <div class="loading-state"><div class="spinner"></div><span>Cargando plantilla…</span></div>
+        <div id="athletes-table-container" class="table-container">
+          <table class="athletes-table">
+            <thead>
+              <tr><th>ATLETA</th><th>EQUIPO</th><th>POSICIÓN</th><th>FECHA NAC.</th><th>FICHA</th><th>BORRAR</th></tr>
+            </thead>
+            <tbody id="athletes-table-list">
+              <!-- Dynamic -->
+            </tbody>
+          </table>
         </div>
       </section>
     </div>
@@ -244,6 +295,7 @@
             <p>Selecciona un atleta para visualizar su historial de neuro-evaluación</p>
           </div>
         </div>
+        <div id="advanced-report-container" style="margin-top:40px"></div>
       </section>
     </div>
 
@@ -351,6 +403,26 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.0.2"></script>
+  <!-- Profile Modal -->
+  <div id="athlete-profile-modal" class="modal-overlay hidden">
+    <div class="modal-box glass large-modal">
+       <div class="modal-header">
+         <div>
+           <div class="panel-label">FICHA DEL DEPORTISTA</div>
+           <h2 id="prof-static-name" class="panel-title">Nombre</h2>
+           <div id="prof-static-pos" class="athlete-pos">Posición</div>
+         </div>
+         <button class="modal-close" onclick="closeAthleteProfile()">✕</button>
+       </div>
+       <div id="tab-container-ficha" class="profile-content"></div>
+    </div>
+  </div>
+
+  <!-- SNC Modal -->
+  <div id="snc-modal" class="modal-overlay hidden">
+    <div class="modal-box glass" id="snc-modal-content"></div>
+  </div>
+
+  <script src="app_v411_final.js?v=4.11.6"></script>
 </body>
 </html>

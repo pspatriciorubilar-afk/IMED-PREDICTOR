@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../theme/app_theme.dart';
+import '../models/performance_model.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -82,13 +84,37 @@ class DashboardScreen extends StatelessWidget {
         const SizedBox(height: 16),
         SizedBox(
           height: 180,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [
-              _riskCard("Sergio Ramos", "CRÍTICO", AppTheme.accentRed, "Optimizar", 58, 18.5),
-              _riskCard("Kevin De Bruyne", "ADVERTENCIA", AppTheme.accentYellow, "Reprogramar", 72, 12.2),
-              _riskCard("Marco Reus", "ÓPTIMO", AppTheme.accentGreen, "Mantenimiento", 91, 8.4),
-            ],
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('Daily_Performance')
+                .orderBy('timestamp', descending: true)
+                .limit(10)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: AppTheme.accentGreen));
+              }
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Center(child: Text("Esperando sincronización de datos GPS...", style: TextStyle(color: AppTheme.textSecondary)));
+              }
+
+              final records = snapshot.data!.docs
+                  .map((doc) => PerformanceModel.fromFirestore(doc))
+                  .toList();
+
+              return ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: records.length,
+                itemBuilder: (context, index) {
+                  final p = records[index];
+                  Color color = AppTheme.accentGreen;
+                  if (p.riskLevel == 'RED') color = AppTheme.accentRed;
+                  if (p.riskLevel == 'YELLOW') color = AppTheme.accentYellow;
+
+                  return _riskCard(p.athleteName, p.ivnLabel, color, p.action, p.iri, p.decelZ5);
+                },
+              );
+            },
           ),
         ),
       ],
