@@ -353,10 +353,72 @@ async function openAthleteProfile(id) {
         
         <div style="margin-top:20px; display:flex; gap:10px">
             <button class="btn-primary" onclick="viewAthleteTrends('${a.id}')" style="flex:1; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue)">📊 Ver Análisis de Tendencia</button>
-            <button class="btn-primary" onclick="alert('Funcionalidad de exportación PDF disponible en Versión Pro')" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border)">📄 Exportar Reporte</button>
+            <button class="btn-primary" onclick="exportAthletePDF('${a.id}')" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border)">📄 Exportar Reporte PDF</button>
         </div>
     `;
     document.getElementById('athlete-profile-modal').classList.remove('hidden');
+}
+
+async function exportAthletePDF(id) {
+    const a = gAthletesCache.find(x => x.id === id);
+    if (!a) return;
+    
+    const records = allPerformance.filter(p => String(p.athleteId).trim() === String(id).trim());
+    const avgIri = records.length ? Math.round(records.reduce((acc, p) => acc + (p.iri || 0), 0) / records.length) : '—';
+    const totalEvals = records.length;
+
+    const element = document.createElement('div');
+    element.style.padding = '40px';
+    element.style.background = '#0a0c0f';
+    element.style.color = '#ffffff';
+    element.style.fontFamily = 'Inter, sans-serif';
+    
+    element.innerHTML = `
+        <div style="border-bottom: 2px solid #00E5FF; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center">
+            <div>
+                <h1 style="margin:0; font-size: 24px; color: #00E5FF">IMED PREDICTOR</h1>
+                <p style="margin:5px 0 0; font-size: 12px; color: #636375">REPORTE TÉCNICO DE RENDIMIENTO BIOMÉTRICO</p>
+            </div>
+            <div style="text-align: right">
+                <p style="margin:0; font-size: 14px; font-weight: bold">${a.fullName}</p>
+                <p style="margin:5px 0 0; font-size: 11px; color: #636375">Generado: ${new Date().toLocaleDateString()}</p>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px">
+            <div style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05)">
+                <h3 style="margin-top:0; font-size: 10px; color: #636375; text-transform: uppercase">Datos del Deportista</h3>
+                <p style="margin:10px 0; font-size: 16px">Equipo: <span style="color: #00E5FF">${a.team || '—'}</span></p>
+                <p style="margin:10px 0; font-size: 16px">Posición: ${a.position || '—'}</p>
+            </div>
+            <div style="background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05)">
+                <h3 style="margin-top:0; font-size: 10px; color: #636375; text-transform: uppercase">Resumen Histórico</h3>
+                <p style="margin:10px 0; font-size: 16px">Promedio IRI: <span style="color: #32D74B">${avgIri}%</span></p>
+                <p style="margin:10px 0; font-size: 16px">Total de Sesiones: ${totalEvals}</p>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 30px">
+            <h3 style="font-size: 14px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 10px">ANÁLISIS CLÍNICO Y OBSERVACIONES</h3>
+            <p style="font-size: 13px; line-height: 1.6; color: #8a8a9e">
+                ${a.notes || 'No se registran observaciones técnicas adicionales en el perfil del atleta para este periodo de reporte.'}
+            </p>
+        </div>
+
+        <div style="margin-top: 50px; text-align: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 20px">
+            <p style="font-size: 10px; color: #636375">Este documento es confidencial y para uso exclusivo del cuerpo técnico y médico. <br> Powered by IMED Sport Ecosystem — Motor de Inteligencia Artificial IVN</p>
+        </div>
+    `;
+
+    const opt = {
+        margin: 0,
+        filename: \`Reporte_IMED_\${a.fullName.replace(/\\s+/g, '_')}.pdf\`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, backgroundColor: '#0a0c0f' },
+        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+
+    html2pdf().set(opt).from(element).save();
 }
 
 async function promptTeamChange(id, currentTeam) {
