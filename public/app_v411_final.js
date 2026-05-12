@@ -810,7 +810,32 @@ function filterAthletesSNC() {
     renderSncTable();
 }
 
-function deleteAthlete(id) { if (confirm("¿Eliminar deportista?")) db.collection('athletes').doc(id).delete(); }
+async function deleteAthlete(id) { 
+    if (!confirm("¿Eliminar deportista y todo su historial de evaluaciones? Esta acción no se puede deshacer.")) return; 
+    
+    try {
+        const batch = db.batch();
+        // Eliminar perfil
+        batch.delete(db.collection('athletes').doc(id));
+        
+        // Eliminar historial vinculado (buscando por string y por número para seguridad)
+        const q1 = await db.collection('Daily_Performance').where('athleteId', '==', id).get();
+        q1.forEach(doc => batch.delete(doc.ref));
+        
+        const idNum = parseInt(id);
+        if (!isNaN(idNum)) {
+            const q2 = await db.collection('Daily_Performance').where('athleteId', '==', idNum).get();
+            q2.forEach(doc => batch.delete(doc.ref));
+        }
+
+        await batch.commit();
+        console.log("Atleta y registros eliminados con éxito.");
+    } catch (err) {
+        console.error("Error en eliminación completa:", err);
+        // Fallback: eliminar solo el perfil si el historial falla
+        db.collection('athletes').doc(id).delete();
+    }
+}
 
 function saveSettings() {
     THRESH.iriCritical = parseInt(document.getElementById('threshold-iri').value) || 60;
