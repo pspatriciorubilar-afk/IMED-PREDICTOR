@@ -95,10 +95,13 @@ function showView(viewId) {
 // ─── Engines ───
 function calculateWellness(p) {
     const w = p.wellness || {};
-    const h = w.sleepHours ?? p.sleep_hours ?? 7;
-    const q = w.sleepQuality ?? p.sleep_quality ?? 3;
-    const s = w.stressLevel ?? p.stress ?? 2;
-    const f = w.fatigueLevel ?? p.fatigue ?? 2;
+    // Si no hay datos de bienestar, el score base es 100 para no penalizar el IVN por falta de inputs
+    if (!w.sleepHours && !p.sleep_hours) return 100;
+
+    const h = w.sleepHours ?? p.sleep_hours ?? 8;
+    const q = w.sleepQuality ?? p.sleep_quality ?? 5;
+    const s = w.stressLevel ?? p.stress ?? 1;
+    const f = w.fatigueLevel ?? p.fatigue ?? 1;
 
     const hScore = (Math.min(8, h) / 8) * 40;
     const qScore = (q / 5) * 20;
@@ -108,11 +111,19 @@ function calculateWellness(p) {
 }
 
 function getUnifiedStatus(p) {
-    const iri = p.iri ?? 75;
+    const iri = p.iri || p.pvt?.metrics?.iri || null;
     const metrics = p.pvt?.metrics || {};
     const lapses = metrics.lapses ?? p.lapses ?? 0;
     const wellness = calculateWellness(p);
     
+    // Si no hay IRI, el estado es PENDIENTE (Sin datos de la App)
+    if (iri === null) {
+        return {
+            level: 'GRAY', label: 'PENDIENTE', na: 0, wellness, ivn: 0,
+            badgeClass: 'badge-gray', ringClass: 'ring-gray'
+        };
+    }
+
     const naBase = (iri * 0.6) + (wellness * 0.4);
     const na = Math.max(0, naBase * (1 - (lapses * 0.1)));
     
@@ -120,6 +131,8 @@ function getUnifiedStatus(p) {
     const decel = gps.decel_high || gps.decel_z5 || 0;
     const sprint = (gps.sprint_dist || gps.sprint_distance || 0) / 100;
     const load = (decel * 0.7) + (sprint * 0.3);
+    
+    // Algoritmo IVN: Carga Mecánica / (Capacidad Adaptativa / 100)
     const ivn = na > 0 ? (load / (na / 100)) : load;
 
     let level = 'GREEN', label = 'ÓPTIMO';
