@@ -257,7 +257,7 @@ function renderSncTable() {
                 <td><span class="risk-badge ${snc.badgeClass}">${snc.label}</span></td>
                 <td><span class="risk-badge ${latDev.class}">${latDev.label}</span></td>
                 <td><span class="risk-badge ${tendency.class}">${tendency.label}</span></td>
-                <td>${p ? p.date : '—'}</td>
+                <td style="white-space:nowrap">${p ? p.date.split('-').reverse().join('-') : '—'}</td>
                 <td>${p?.timestamp ? (p.timestamp.seconds ? new Date(p.timestamp.seconds*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—') : '—'}</td>
                 <td><span class="badge badge-gray" style="background:rgba(0,229,255,0.1); color:#00E5FF">${sessionCount}</span></td>
                 <td><span class="risk-badge ${isDone ? 'badge-green' : 'badge-gray'}">${isDone ? 'SI' : 'NO'}</span></td>
