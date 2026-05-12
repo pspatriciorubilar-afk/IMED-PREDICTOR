@@ -602,6 +602,7 @@ function loadAthleteReport(athleteId) {
     const latencyVals = records.map(p => p.pvt?.metrics?.meanLatency ?? p.avg_reaction ?? 0);
     const sleepVals = records.map(p => p.wellness?.sleepHours ?? p.sleep_hours ?? 0);
     const stressVals = records.map(p => p.wellness?.stressLevel ?? p.stress ?? 0);
+    const qualityVals = records.map(p => p.wellness?.sleepQuality ?? p.sleep_quality ?? 0);
 
     container.innerHTML = `
         <div class="report-grid">
@@ -609,6 +610,7 @@ function loadAthleteReport(athleteId) {
             ${renderReportCard('LATENCIA SNC (MS)', 'chart-latency')}
             ${renderReportCard('CORRELACIÓN: IRI VS DESACELERACIONES', 'chart-corr')}
             ${renderReportCard('HORAS SUEÑO', 'chart-sleep')}
+            ${renderReportCard('CALIDAD SUEÑO (1-5)', 'chart-quality')}
             ${renderReportCard('ESTRÉS', 'chart-stress')}
         </div>`;
     advancedContainer.innerHTML = '';
@@ -616,6 +618,7 @@ function loadAthleteReport(athleteId) {
     createMiniChart('chart-iri', labels, iriVals, '#BF5AF2', 0, 100);
     createMiniChart('chart-latency', labels, latencyVals, '#00E5FF', 200, 450);
     createMiniChart('chart-sleep', labels, sleepVals, '#32D74B', 4, 12);
+    createMiniChart('chart-quality', labels, qualityVals, '#FF9F0A', 1, 5);
     createMiniChart('chart-stress', labels, stressVals, '#FFD60A', 1, 5);
 
     // Correlation Scatter
