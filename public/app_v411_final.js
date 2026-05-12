@@ -6,6 +6,18 @@
 
 const THRESH = { iriCritical: 60, lapses: 2, iriOptimal: 85 };
 
+// ─── Persistence Logic ───
+(function loadSettings() {
+    const saved = localStorage.getItem('imed_predictor_settings');
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            Object.assign(THRESH, parsed);
+            console.log("IMED: Configuración de umbrales cargada.", THRESH);
+        } catch (e) { console.error("IMED: Error al cargar configuración:", e); }
+    }
+})();
+
 let db, auth;
 let unsubscribe = null;
 let allPerformance = [];
@@ -117,21 +129,6 @@ function calculateWellness(p) {
 }
 
 function getUnifiedStatus(p) {
-    // Si el backend ya calculó el IVN y el riesgo, lo usamos directamente para máxima integridad
-    if (p.ivn_score !== undefined && p.risk_level) {
-        const level = p.risk_level;
-        return {
-            level,
-            label: p.ivn_label || (level === 'RED' ? 'RIESGO CRÍTICO' : (level === 'YELLOW' ? 'ADVERTENCIA' : 'ÓPTIMO')),
-            na: p.na || p.iri || 0,
-            wellness: calculateWellness(p),
-            ivn: p.ivn_score,
-            action: p.action || '',
-            badgeClass: `badge-${level.toLowerCase()}`,
-            ringClass: `ring-${level.toLowerCase()}`
-        };
-    }
-
     const iri = p.iri || p.pvt?.metrics?.iri || null;
     const metrics = p.pvt?.metrics || {};
     const lapses = metrics.lapses ?? p.lapses ?? 0;
@@ -155,7 +152,9 @@ function getUnifiedStatus(p) {
     
     // Algoritmo IVN Sincronizado: (Carga Mecánica * ACWR) / (Disponibilidad Neural / 100)
     const acwr = p.acwr || 1.0;
-    const ivn = na > 0 ? ((load * acwr) / (na / 100)) : load;
+    // Usar ivn_score del backend si está disponible como base para el cálculo IVN, 
+    // pero manteniendo la lógica de umbrales del frontend para el estado.
+    const ivn = p.ivn_score !== undefined ? p.ivn_score : (na > 0 ? ((load * acwr) / (na / 100)) : load);
 
     let level = 'GREEN', label = 'ÓPTIMO';
     // Aplicación de Umbrales Dinámicos desde Configuración
@@ -169,7 +168,8 @@ function getUnifiedStatus(p) {
     return { 
         level, label, na, wellness, ivn,
         badgeClass: `badge-${level.toLowerCase()}`, 
-        ringClass: `ring-${level.toLowerCase()}` 
+        ringClass: `ring-${level.toLowerCase()}`,
+        action: p.action || '' // Preservar acción del backend si existe
     };
 }
 
@@ -850,8 +850,11 @@ function saveSettings() {
     THRESH.lapses = parseInt(document.getElementById('threshold-lapses').value) || 2;
     THRESH.iriOptimal = parseInt(document.getElementById('threshold-iri-opt').value) || 85;
     
+    // Guardar permanentemente en el navegador
+    localStorage.setItem('imed_predictor_settings', JSON.stringify(THRESH));
+    
     renderDashboard();
-    renderSncTable(); // Actualizar tabla de monitoreo con nuevos umbrales
+    renderSncTable(); 
     
     alert("Configuración guardada: Los nuevos umbrales se han aplicado a todos los cálculos del sistema.");
 }
