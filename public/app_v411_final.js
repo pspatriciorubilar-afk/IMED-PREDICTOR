@@ -157,7 +157,7 @@ function renderDashboard() {
         const initials = (p.athleteName || 'AT').split(' ').map(w => w[0]).join('').slice(0, 2);
         const hasGps = p.gps && (p.gps.decel_high || p.gps.decel_z5 || p.gps.sprint_dist);
         return `
-            <div class="athlete-card" onclick="openSncModal('${p.athleteId}')">
+            <div class="athlete-card" onclick="openSncModal('${p.athleteId}')" style="position:relative">
                 <div class="athlete-avatar">${initials}<div class="risk-ring ${ivn.ringClass}"></div></div>
                 <div class="athlete-info">
                     <div class="athlete-name">${p.athleteName || p.athleteId}</div>
@@ -171,7 +171,10 @@ function renderDashboard() {
                         <div class="lbl">${hasGps ? 'INDICE IVN' : 'SIN GPS'}</div>
                     </div>
                 </div>
-                <span class="risk-badge ${ivn.badgeClass}">${ivn.label}</span>
+                <div style="display:flex; align-items:center; gap:10px">
+                    <span class="risk-badge ${ivn.badgeClass}">${ivn.label}</span>
+                    <button class="btn-delete" style="width:28px; height:28px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:6px; background:rgba(255,69,58,0.1); border:1px solid rgba(255,69,58,0.2); color:#FF453A" onclick="event.stopPropagation(); deleteAthlete('${p.athleteId}')">🗑</button>
+                </div>
             </div>`;
     }).join('') : '<div class="empty-state">No hay evaluaciones registradas hoy.</div>';
     
