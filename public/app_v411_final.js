@@ -223,7 +223,8 @@ function updateChart() {
 function renderSncTable() {
     const list = document.getElementById('snc-athletes-list');
     if (!list) return;
-    const today = new Date().toISOString().split('T')[0];
+    // Usar la fecha local (YYYY-MM-DD) para evitar desfases de zona horaria con UTC
+    const today = new Date().toLocaleDateString('en-CA'); 
     
     list.innerHTML = gAthletesCache.map(a => {
         const records = allPerformance.filter(p => String(p.athleteId).trim() === String(a.id).trim());
