@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════
    IMED PREDICTOR — app_v411_final.js
-   Version: 4.12.0 (TOTAL INTEGRATION)
+   Version: 4.13.0 (PRECISION & TRANSPARENCY UPDATE)
    Features: Real-time Sync, Integrated IVN, GPS Upload, Trends
    ════════════════════════════════════════════ */
 
