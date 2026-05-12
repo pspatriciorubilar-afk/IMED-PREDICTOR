@@ -15,6 +15,7 @@ let reportCharts = [];
 let selectedGpsBrand = 'auto';
 let selectedFile = null;
 let gActiveProfileId = null;
+let gSncTeamFilter = "";
 
 // ─── Initialization ───
 const firebaseConfig = {
@@ -90,6 +91,11 @@ function showView(viewId) {
     const titleEl = document.getElementById('page-title');
     if (titleEl) titleEl.textContent = titleMap[viewId] || 'IMED Predictor';
     if (viewId === 'reports') loadAthleteReport(document.getElementById('report-athlete-select')?.value);
+    if (viewId === 'settings') {
+        document.getElementById('threshold-iri').value = THRESH.iriCritical;
+        document.getElementById('threshold-lapses').value = THRESH.lapses;
+        document.getElementById('threshold-iri-opt').value = THRESH.iriOptimal;
+    }
 }
 
 // ─── Engines ───
@@ -111,12 +117,26 @@ function calculateWellness(p) {
 }
 
 function getUnifiedStatus(p) {
+    // Si el backend ya calculó el IVN y el riesgo, lo usamos directamente para máxima integridad
+    if (p.ivn_score !== undefined && p.risk_level) {
+        const level = p.risk_level;
+        return {
+            level,
+            label: p.ivn_label || (level === 'RED' ? 'RIESGO CRÍTICO' : (level === 'YELLOW' ? 'ADVERTENCIA' : 'ÓPTIMO')),
+            na: p.na || p.iri || 0,
+            wellness: calculateWellness(p),
+            ivn: p.ivn_score,
+            action: p.action || '',
+            badgeClass: `badge-${level.toLowerCase()}`,
+            ringClass: `ring-${level.toLowerCase()}`
+        };
+    }
+
     const iri = p.iri || p.pvt?.metrics?.iri || null;
     const metrics = p.pvt?.metrics || {};
     const lapses = metrics.lapses ?? p.lapses ?? 0;
     const wellness = calculateWellness(p);
     
-    // Si no hay IRI, el estado es PENDIENTE (Sin datos de la App)
     if (iri === null) {
         return {
             level: 'GRAY', label: 'PENDIENTE', na: 0, wellness, ivn: 0,
@@ -129,15 +149,22 @@ function getUnifiedStatus(p) {
     
     const gps = p.gps || {};
     const decel = gps.decel_high || gps.decel_z5 || 0;
-    const sprint = (gps.sprint_dist || gps.sprint_distance || 0) / 100;
-    const load = (decel * 0.7) + (sprint * 0.3);
+    // Sincronización con Backend: Sprint se normaliza / 10 y pesos son 60/40
+    const sprint = (gps.sprint_dist || gps.sprint_distance || 0) / 10;
+    const load = (decel * 0.6) + (sprint * 0.4);
     
-    // Algoritmo IVN: Carga Mecánica / (Capacidad Adaptativa / 100)
-    const ivn = na > 0 ? (load / (na / 100)) : load;
+    // Algoritmo IVN Sincronizado: (Carga Mecánica * ACWR) / (Disponibilidad Neural / 100)
+    const acwr = p.acwr || 1.0;
+    const ivn = na > 0 ? ((load * acwr) / (na / 100)) : load;
 
     let level = 'GREEN', label = 'ÓPTIMO';
-    if (na < 55 || lapses > 2 || ivn > 15) { level = 'RED'; label = 'RIESGO CRÍTICO'; }
-    else if (na < 80 || ivn > 8) { level = 'YELLOW'; label = 'ADVERTENCIA'; }
+    // Aplicación de Umbrales Dinámicos desde Configuración
+    if (na < (THRESH.iriCritical || 60) || lapses >= (THRESH.lapses || 2) || ivn > 30) { 
+        level = 'RED'; label = 'RIESGO CRÍTICO'; 
+    }
+    else if (na < (THRESH.iriOptimal || 85) || ivn > 15) { 
+        level = 'YELLOW'; label = 'ADVERTENCIA'; 
+    }
 
     return { 
         level, label, na, wellness, ivn,
@@ -245,7 +272,12 @@ function renderSncTable() {
     // Usar la fecha local (YYYY-MM-DD) para evitar desfases de zona horaria con UTC
     const today = new Date().toLocaleDateString('en-CA'); 
     
-    list.innerHTML = gAthletesCache.map(a => {
+    // Filtro por equipo/plantilla
+    const filteredAthletes = gSncTeamFilter 
+        ? gAthletesCache.filter(a => a.team === gSncTeamFilter)
+        : gAthletesCache;
+
+    list.innerHTML = filteredAthletes.map(a => {
         const records = allPerformance.filter(p => String(p.athleteId).trim() === String(a.id).trim());
         const p = records[0]; // El más reciente (está ordenado desc)
         const snc = p ? calcSNC(p) : { level: 'GRAY', label: 'PENDIENTE', badgeClass: 'badge-gray' };
@@ -266,16 +298,21 @@ function renderSncTable() {
             <tr onclick="openSncModal('${a.id}')">
                 <td><strong>${a.fullName}</strong></td>
                 <td><span class="badge badge-gray">${a.team || 'SNC'}</span></td>
-                <td>${p ? Math.round(p.iri) : '—'}</td>
+                <td><strong class="num-mono" style="font-size:15px">${p ? Math.round(p.iri) : '—'}</strong></td>
                 <td><span class="risk-badge ${snc.badgeClass}">${snc.label}</span></td>
                 <td><span class="risk-badge ${latDev.class}">${latDev.label}</span></td>
                 <td><span class="risk-badge ${tendency.class}">${tendency.label}</span></td>
-                <td style="white-space:nowrap">${p ? p.date.split('-').reverse().join('-') : '—'}</td>
-                <td>${p?.timestamp ? (p.timestamp.seconds ? new Date(p.timestamp.seconds*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—') : '—'}</td>
-                <td><span class="badge badge-gray" style="background:rgba(0,229,255,0.1); color:#00E5FF">${sessionCount}</span></td>
-                <td><span class="risk-badge ${isDone ? 'badge-green' : 'badge-gray'}">${isDone ? 'SI' : 'NO'}</span></td>
+                <td style="white-space:nowrap" class="num-mono">${p ? p.date.split('-').reverse().join('-') : '—'}</td>
+                <td>
+                    <span class="num-mono" style="color:${p?.gps ? 'var(--blue)' : '#636375'}; font-size:14px">
+                        ${p?.gps ? (snc.ivn.toFixed(1) + 'x') : '<small style="opacity:0.5">S/D GPS</small>'}
+                    </span>
+                </td>
+                <td class="num-mono">${p?.timestamp ? (p.timestamp.seconds ? new Date(p.timestamp.seconds*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—') : '—'}</td>
+                <td><span class="badge badge-gray num-mono" style="background:rgba(0,229,255,0.1); color:#00E5FF">${sessionCount}</span></td>
+                <td><span class="risk-badge ${isDone ? 'badge-green' : 'badge-gray'}" style="width:32px; text-align:center">${isDone ? 'SI' : 'NO'}</span></td>
                 <td><button class="btn-mini">Análisis</button></td>
-                <td style="display:flex; gap:5px; align-items:center">
+                <td style="display:flex; gap:8px; align-items:center; min-width:110px">
                     <button class="btn-mini" style="background:#BF5AF222; color:#BF5AF2; border:1px solid #BF5AF244" onclick="event.stopPropagation(); exportAthletePDF('${a.id}')">PDF</button>
                     <button class="btn-delete" onclick="event.stopPropagation(); deleteAthlete('${a.id}')">🗑</button>
                 </td>
@@ -599,8 +636,9 @@ function openSncModal(id) {
                 <strong>Estado: ${snc.label}.</strong> Disponibilidad Neural Integrada: <strong>${Math.round(snc.na)}%</strong>. 
                 El algoritmo ha detectado una correlación entre ${snc.wellness < 70 ? 'un Wellness pobre' : 'fatiga neural'} 
                 y una carga mecánica de <strong>${snc.ivn.toFixed(1)}x</strong>.
+                ${p.acwr ? `<br>Ratio de Carga Aguda (ACWR): <strong>${p.acwr.toFixed(2)}</strong>` : ''}
                 <br><br>
-                <strong>Prescripción:</strong> ${snc.level === 'GREEN' ? 'Mantener cargas. Atleta en zona de adaptación.' : (snc.level === 'YELLOW' ? 'Moderar intensidad mecánica. Evitar sprints máximos.' : 'REDUCCIÓN INMEDIATA. Riesgo de lesión elevado por baja disponibilidad neural.')}
+                <strong>Prescripción:</strong> ${snc.action || (snc.level === 'GREEN' ? 'Mantener cargas. Atleta en zona de adaptación.' : (snc.level === 'YELLOW' ? 'Moderar intensidad mecánica. Evitar sprints máximos.' : 'REDUCCIÓN INMEDIATA. Riesgo de lesión elevado por baja disponibilidad neural.'))}
             </div>
             <button class="btn-primary w-full" style="margin-top:16px; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue)" onclick="viewAthleteTrends('${a.id}')">📊 Ver Tendencias Biométricas</button>
         </div>`;
@@ -758,6 +796,18 @@ function populateAthleteSelects() {
     const selects = ['report-athlete-select', 'upload-athlete'];
     const options = '<option value="">Seleccionar Atleta...</option>' + gAthletesCache.sort((a,b)=>a.fullName.localeCompare(b.fullName)).map(a => `<option value="${a.id}">${a.fullName}</option>`).join('');
     selects.forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = options; });
+
+    // Poblar Filtro de Equipos en SNC
+    const teamFilter = document.getElementById('snc-team-filter');
+    if (teamFilter) {
+        const teams = [...new Set(gAthletesCache.map(a => a.team).filter(Boolean))].sort();
+        teamFilter.innerHTML = '<option value="">Todas las plantillas</option>' + teams.map(t => `<option value="${t}" ${t === gSncTeamFilter ? 'selected' : ''}>${t}</option>`).join('');
+    }
+}
+
+function filterAthletesSNC() {
+    gSncTeamFilter = document.getElementById('snc-team-filter').value;
+    renderSncTable();
 }
 
 function deleteAthlete(id) { if (confirm("¿Eliminar deportista?")) db.collection('athletes').doc(id).delete(); }
@@ -766,8 +816,11 @@ function saveSettings() {
     THRESH.iriCritical = parseInt(document.getElementById('threshold-iri').value) || 60;
     THRESH.lapses = parseInt(document.getElementById('threshold-lapses').value) || 2;
     THRESH.iriOptimal = parseInt(document.getElementById('threshold-iri-opt').value) || 85;
+    
     renderDashboard();
-    alert("Configuración guardada correctamente.");
+    renderSncTable(); // Actualizar tabla de monitoreo con nuevos umbrales
+    
+    alert("Configuración guardada: Los nuevos umbrales se han aplicado a todos los cálculos del sistema.");
 }
 
 function refreshData() { location.reload(); }

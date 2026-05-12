@@ -252,7 +252,7 @@ body {
 /* ═══════════════════════════════════════════════
    PANEL
    ════════════════════════════════════════════════ */
-.panel { padding: 24px; margin-bottom: 24px; }
+.panel { padding: 24px; margin-bottom: 24px; width: 100%; box-sizing: border-box; }
 .panel-header {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
@@ -312,9 +312,9 @@ body {
   white-space: nowrap;
   line-height: 1.2;
 }
-.badge-red    { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,77,77,0.3); }
-.badge-yellow { background: var(--yellow-dim); color: var(--yellow); border: 1px solid rgba(255,214,10,0.3); }
-.badge-green  { background: var(--green-dim); color: var(--green); border: 1px solid rgba(50,215,75,0.3); }
+.badge-red    { background: rgba(255,77,77,0.1); color: var(--red); border: 1px solid rgba(255,77,77,0.2); box-shadow: 0 0 10px rgba(255,77,77,0.05); }
+.badge-yellow { background: rgba(255,214,10,0.1); color: var(--yellow); border: 1px solid rgba(255,214,10,0.2); }
+.badge-green  { background: rgba(50,215,75,0.1); color: var(--green); border: 1px solid rgba(50,215,75,0.2); box-shadow: 0 0 10px rgba(50,215,75,0.05); }
 
 .action-btn {
   padding: 5px 12px; border-radius: 6px; border: none; cursor: pointer;
@@ -365,8 +365,23 @@ body {
 /* ═══════════════════════════════════════════════
    ATHLETES TABLE
    ════════════════════════════════════════════════ */
+.table-container { 
+    display: block;
+    width: 100%; 
+    max-width: 100%;
+    overflow-x: auto; 
+    border-radius: var(--radius-sm);
+    padding-bottom: 12px;
+    background: rgba(0,0,0,0.05);
+    border: 1px solid var(--border);
+}
+.table-container::-webkit-scrollbar { height: 6px; }
+.table-container::-webkit-scrollbar-thumb { background: var(--border-h); border-radius: 10px; }
+
 .athletes-table {
-  width: 100%; border-collapse: collapse;
+  width: 100%; 
+  min-width: 1100px; /* Garantiza que las columnas no se compriman fuera de margen */
+  border-collapse: collapse;
 }
 .athletes-table th {
   text-align: left; font-size: 10px; font-weight: 800;
@@ -375,13 +390,24 @@ body {
   text-transform: uppercase;
 }
 .athletes-table td {
-  padding: 12px 16px; font-size: 13px; color: var(--text-1);
+  padding: 16px; font-size: 13px; color: var(--text-1);
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
+.athletes-table td:last-child {
+    padding-right: 24px; /* Margen de seguridad a la derecha */
+}
 .athletes-table tr:last-child td { border-bottom: none; }
-.athletes-table tbody tr { transition: background 0.15s; cursor: pointer; }
-.athletes-table tbody tr:hover { background: var(--glass-b); }
+.athletes-table tbody tr { 
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
+    cursor: pointer; 
+    border-left: 3px solid transparent;
+}
+.athletes-table tbody tr:hover { 
+    background: rgba(255,255,255,0.04); 
+    border-left-color: var(--blue);
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+}
 
 /* ═══════════════════════════════════════════════
    UPLOAD
@@ -604,17 +630,23 @@ body {
 }
 
 /* ─── Table utility ─── */
+.num-mono { font-family: 'JetBrains Mono', 'Courier New', monospace; font-variant-numeric: tabular-nums; font-weight: 700; letter-spacing: -0.5px; }
 .text-muted { color: var(--text-3); }
 .badge-gray { background: rgba(255,255,255,0.05); color: var(--text-2); border: 1px solid var(--border); }
 .badge-blue { background: var(--blue-dim); color: var(--blue); border: 1px solid rgba(77,166,255,0.3); }
 .settings-label { font-size: 9px; font-weight: 700; letter-spacing: 2px; color: var(--text-3); }
 .btn-mini {
-  padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+  padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--glass); color: var(--blue); cursor: pointer;
-  font-size: 10px; font-weight: 600; font-family: var(--font);
-  transition: all 0.2s;
+  font-size: 10px; font-weight: 700; font-family: var(--font);
+  transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px;
 }
-.btn-mini:hover { background: var(--blue-dim); border-color: var(--blue); }
+.btn-mini:hover { 
+    background: var(--blue-dim); 
+    border-color: var(--blue);
+    box-shadow: 0 0 15px rgba(77,166,255,0.2);
+    transform: translateY(-1px);
+}
 
 .btn-delete {
   background: transparent; border: none; color: var(--red);

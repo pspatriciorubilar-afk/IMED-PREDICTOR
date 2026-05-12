@@ -90,7 +90,7 @@ const GPS_BRANDS_DB = {
       decel_z5:       ["Desaceleraciones Altas", "Dec Alta", "High Decel", "decel_alta", "HighDecels"],
       accel_high:     ["Aceleraciones Altas", "Acel Alta", "High Accel", "accel_alta", "HighAccels"],
       max_speed:      ["Velocidad Máxima", "Vel Max", "Max Speed", "vel_max"],
-      distance:       ["Distancia Total", "Distancia (m)", "Distance"],
+      distance:       ["Distancia Total", "Distancia (m)", "Distance", "Dist. Recorrida (m)"],
       sprint_distance:["Distancia Sprint", "Sprint", "Sprint Dist"],
     }
   },
