@@ -639,6 +639,14 @@ function openSncModal(id) {
                 ${p.acwr ? `<br>Ratio de Carga Aguda (ACWR): <strong>${p.acwr.toFixed(2)}</strong>` : ''}
                 <br><br>
                 <strong>Prescripción:</strong> ${snc.action || (snc.level === 'GREEN' ? 'Mantener cargas. Atleta en zona de adaptación.' : (snc.level === 'YELLOW' ? 'Moderar intensidad mecánica. Evitar sprints máximos.' : 'REDUCCIÓN INMEDIATA. Riesgo de lesión elevado por baja disponibilidad neural.'))}
+                
+                <div style="margin-top:15px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.1); font-size:11px; color:var(--text-3); line-height:1.5; font-style: italic">
+                    <strong>Desglose Técnico de Variables:</strong><br>
+                    • <strong>Disponibilidad Neural (NA):</strong> Cálculo balanceado entre IRI (60%) y Wellness (40%), ajustado por precisión cognitiva (Lapses).<br>
+                    • <strong>Carga Mecánica (CM):</strong> Índice de intensidad física derivado de Desaceleraciones (60%) y Sprints normalizados (40%).<br>
+                    • <strong>ACWR:</strong> Ratio de carga aguda vs. crónica; detecta picos de esfuerzo peligrosos sobre la base histórica.<br>
+                    • <strong>Algoritmo IVN:</strong> Resultado de cruzar la CM y el ACWR contra la Disponibilidad Neural para predecir fatiga neuro-mecánica.
+                </div>
             </div>
             <button class="btn-primary w-full" style="margin-top:16px; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue)" onclick="viewAthleteTrends('${a.id}')">📊 Ver Tendencias Biométricas</button>
         </div>`;
