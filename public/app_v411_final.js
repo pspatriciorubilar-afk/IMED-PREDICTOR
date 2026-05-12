@@ -498,6 +498,28 @@ async function exportAthletePDF(id) {
     html2pdf().set(opt).from(element).save();
 }
 
+async function deleteAthlete(id) {
+    if (!confirm('¿Estás seguro de que deseas eliminar este deportista y todos sus registros? Esta acción no se puede deshacer.')) return;
+    
+    try {
+        // 1. Eliminar de la colección 'athletes'
+        await db.collection('athletes').doc(id).delete();
+        
+        // 2. Eliminar registros de 'performance' asociados
+        const snapshot = await db.collection('performance').where('athleteId', '==', id).get();
+        const batch = db.batch();
+        snapshot.docs.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        
+        alert('Deportista eliminado correctamente.');
+        // Recargar datos (los listeners de Firestore se encargarán del resto si están activos, 
+        // pero aquí forzamos una actualización de la UI si es necesario)
+    } catch (e) {
+        console.error("Error al eliminar deportista:", e);
+        alert('Error al intentar eliminar el deportista.');
+    }
+}
+
 async function promptTeamChange(id, currentTeam) {
     const newTeam = prompt("Ingrese el nombre de la nueva Plantilla/Equipo:", currentTeam);
     if (newTeam !== null) {
