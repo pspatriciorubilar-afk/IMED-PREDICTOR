@@ -155,6 +155,7 @@ function renderDashboard() {
         const ivn = calcIVN(p);
         if (p.date === today) counts[ivn.level]++;
         const initials = (p.athleteName || 'AT').split(' ').map(w => w[0]).join('').slice(0, 2);
+        const hasGps = p.gps && (p.gps.decel_high || p.gps.decel_z5 || p.gps.sprint_dist);
         return `
             <div class="athlete-card" onclick="openSncModal('${p.athleteId}')">
                 <div class="athlete-avatar">${initials}<div class="risk-ring ${ivn.ringClass}"></div></div>
@@ -165,6 +166,10 @@ function renderDashboard() {
                 <div class="athlete-metrics">
                     <div class="metric-mini"><div class="val">${Math.round(p.iri)}</div><div class="lbl">IRI</div></div>
                     <div class="metric-mini"><div class="val">${p.pvt?.metrics?.lapses ?? p.lapses ?? 0}</div><div class="lbl">LAPSES</div></div>
+                    <div class="metric-mini">
+                        <div class="val" style="color:${hasGps ? 'var(--blue)' : '#636375'}">${hasGps ? ivn.ivn.toFixed(1)+'x' : 'S/D'}</div>
+                        <div class="lbl">${hasGps ? 'INDICE IVN' : 'SIN GPS'}</div>
+                    </div>
                 </div>
                 <span class="risk-badge ${ivn.badgeClass}">${ivn.label}</span>
             </div>`;
