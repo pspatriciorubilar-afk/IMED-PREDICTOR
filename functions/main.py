@@ -1,5 +1,6 @@
-from firebase_functions import https_fn, options
+from firebase_functions import https_fn, options, firestore_fn
 from firebase_admin import initialize_app, firestore
+import datetime
 
 # Configuración global - Rendimiento Optimizado (Plan Blaze)
 options.set_global_options(region="us-central1", timeout_sec=60, memory=512)
@@ -280,3 +281,88 @@ def process_gps_csv(req: https_fn.CallableRequest) -> dict:
     except Exception as e:
         print(f"[ERROR IVN] {str(e)}")
         raise https_fn.HttpsError(https_fn.FunctionsErrorCode.INTERNAL, str(e))
+
+# ── AUTOMATIZACIÓN DE SINCRONIZACIÓN (De aquí en adelante) ───────────────
+@firestore_fn.on_document_created(document="athletes/{athlete_id}/measurements/{measurement_id}")
+def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
+    """
+    Sincronizador Automático IMED v3.0
+    Asegura que cada test llegue al Dashboard Daily_Performance al instante.
+    """
+    if event.data is None:
+        return
+
+    try:
+        athlete_id = event.params["athlete_id"]
+        m_data = event.data.to_dict()
+        date_str = m_data.get("date")
+        
+        if not date_str:
+            return
+
+        db = firestore.client()
+        
+        # Obtener nombre del atleta para el panel
+        athlete_snap = db.collection("athletes").document(athlete_id).get()
+        athlete_name = athlete_id
+        if athlete_snap.exists:
+            ad = athlete_snap.to_dict()
+            athlete_name = f"{ad.get('firstName','')} {ad.get('lastName','')}".strip()
+
+        # Payload para Daily_Performance (Modo Neuro-Only o Preservar GPS)
+        doc_id = f"{athlete_id}_{date_str}"
+        payload = {
+            "athleteId": athlete_id,
+            "athleteName": athlete_name,
+            "date": date_str,
+            "iri": m_data.get("iri"),
+            "status": m_data.get("status"),
+            "lapses": m_data.get("pvt", {}).get("metrics", {}).get("lapses", 0),
+            "wellness": m_data.get("wellness"),
+            "pvt": m_data.get("pvt"),
+            "timestamp": firestore.SERVER_TIMESTAMP,
+            "sync_method": "auto_trigger_v3"
+        }
+        
+        # Guardar en Daily_Performance (merge=True para no borrar datos GPS si ya existen)
+        db.collection("Daily_Performance").document(doc_id).set(payload, merge=True)
+        print(f"[AUTO-SYNC] Sincronización exitosa para {athlete_name} ({date_str})")
+
+    except Exception as e:
+        print(f"[ERROR AUTO-SYNC] {str(e)}")
+
+@https_fn.on_call()
+def force_sync_athlete(req: https_fn.CallableRequest) -> dict:
+    """Función para recuperación manual de datos perdidos."""
+    athlete_id = req.data.get("athleteId")
+    date_str = req.data.get("date")
+    
+    if not athlete_id or not date_str:
+        raise https_fn.HttpsError(https_fn.FunctionsErrorCode.INVALID_ARGUMENT, "Faltan parámetros.")
+        
+    db = firestore.client()
+    measurements = db.collection("athletes").document(athlete_id).collection("measurements") \
+        .where("date", "==", date_str).order_by("timestamp", direction=firestore.Query.DESCENDING).limit(1).get()
+        
+    if not measurements:
+        return {"status": "error", "message": "No se hallaron mediciones para esa fecha."}
+        
+    m_data = measurements[0].to_dict()
+    athlete_snap = db.collection("athletes").document(athlete_id).get()
+    athlete_name = f"{athlete_snap.to_dict().get('firstName','')} {athlete_snap.to_dict().get('lastName','')}".strip() if athlete_snap.exists else athlete_id
+
+    payload = {
+        "athleteId": athlete_id,
+        "athleteName": athlete_name,
+        "date": date_str,
+        "iri": m_data.get("iri"),
+        "status": m_data.get("status"),
+        "lapses": m_data.get("pvt", {}).get("metrics", {}).get("lapses", 0),
+        "wellness": m_data.get("wellness"),
+        "pvt": m_data.get("pvt"),
+        "timestamp": firestore.SERVER_TIMESTAMP,
+        "sync_method": "forced_recovery"
+    }
+    
+    db.collection("Daily_Performance").document(f"{athlete_id}_{date_str}").set(payload, merge=True)
+    return {"status": "success", "message": f"Datos de {athlete_name} sincronizados."}

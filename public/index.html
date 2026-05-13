@@ -179,35 +179,37 @@
         </section>
       </div>
 
-      <!-- IVN Algorithm Explainer -->
-      <section class="panel glass ivn-panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-label">MOTOR DE INTELIGENCIA</div>
-            <h2 class="panel-title">Algoritmo $IVN$ — Índice de Vulnerabilidad Neuro-Mecánica</h2>
+      <!-- 📊 SECCIÓN DE ANALÍTICA AVANZADA (PREMIUM) -->
+      <div class="grid-2col" style="margin-top:20px">
+        
+        <!-- Tendencias por Equipo -->
+        <section class="panel glass">
+          <div class="panel-header">
+            <div>
+              <div class="panel-label">INTELIGENCIA COLECTIVA</div>
+              <h2 class="panel-title">Tendencias de IRI por Plantilla</h2>
+            </div>
+            <div class="chart-legend-mini" id="team-trend-legend"></div>
           </div>
-        </div>
-        <div class="ivn-grid">
-          <div class="ivn-rule red-border">
-            <div class="ivn-icon">🔴</div>
-            <div class="ivn-rule-title">RIESGO CRÍTICO</div>
-            <div class="ivn-rule-formula">IRI &lt; 60 + Carga GPS &gt; Media</div>
-            <div class="ivn-rule-desc">Falla inminente por fatiga neuromuscular. Sistema nervioso central sobrecargado incapaz de proteger las articulaciones bajo carga mecánica elevada. Acción: <strong>Optimizar</strong> carga inmediatamente.</div>
+          <div class="chart-container" style="height:250px">
+            <canvas id="teamTrendChart"></canvas>
           </div>
-          <div class="ivn-rule yellow-border">
-            <div class="ivn-icon">🟡</div>
-            <div class="ivn-rule-title">RIESGO DE COORDINACIÓN</div>
-            <div class="ivn-rule-formula">Lapses &gt; 2 unidades</div>
-            <div class="ivn-rule-desc">El SNC ha perdido el timing neuro-motor necesario para proteger las articulaciones. Fallos de atención sostenida predicen déficits de control motor. Acción: <strong>Reprogramar</strong> sesión.</div>
+        </section>
+
+        <!-- Distribución de Riesgo -->
+        <section class="panel glass">
+          <div class="panel-header">
+            <div>
+              <div class="panel-label">ESTADO GLOBAL</div>
+              <h2 class="panel-title">Distribución de Riesgo Operativo</h2>
+            </div>
           </div>
-          <div class="ivn-rule green-border">
-            <div class="ivn-icon">🟢</div>
-            <div class="ivn-rule-title">ADAPTACIÓN ÓPTIMA</div>
-            <div class="ivn-rule-formula">IRI &gt; 85 + Carga GPS Alta</div>
-            <div class="ivn-rule-desc">El atleta asimila la carga de entrenamiento con alta disponibilidad neurológica. Ventana de supercompensación activa. Mantener planificación actual.</div>
+          <div class="chart-container" style="height:250px">
+            <canvas id="riskDistributionChart"></canvas>
           </div>
-        </div>
-      </section>
+        </section>
+
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════
@@ -421,6 +423,6 @@
     <div class="modal-box glass" id="snc-modal-content"></div>
   </div>
 
-  <script src="app_v411_final.js?v=4.11.6"></script>
+  <script src="app_v411_final.js?v=4.14.7"></script>
 </body>
 </html>

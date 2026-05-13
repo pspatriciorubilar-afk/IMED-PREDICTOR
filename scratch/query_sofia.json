@@ -1,0 +1,12 @@
+{
+  "structuredQuery": {
+    "from": [{"collectionId": "Daily_Performance"}],
+    "where": {
+      "fieldFilter": {
+        "field": {"fieldPath": "athleteId"},
+        "op": "EQUAL",
+        "value": {"stringValue": "sofia_torres_14"}
+      }
+    }
+  }
+}

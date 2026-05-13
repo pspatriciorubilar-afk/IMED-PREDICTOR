@@ -174,29 +174,94 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildNeuroEvaluationSection() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('Daily_Performance')
+          .orderBy('timestamp', descending: true)
+          .limit(20)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox();
+        
+        final records = snapshot.data!.docs
+            .map((doc) => PerformanceModel.fromFirestore(doc))
+            .toList()
+            .reversed
+            .toList();
+
+        if (records.isEmpty) return const SizedBox();
+
+        return Column(
+          children: [
+            _buildChartCard(
+              "EVOLUCIÓN IRI (SNC)",
+              records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.iri)).toList(),
+              AppTheme.accentGreen,
+              0, 100,
+            ),
+            const SizedBox(height: 24),
+            _buildChartCard(
+              "DESACELERACIONES (Z5)",
+              records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.decelZ5)).toList(),
+              AppTheme.accentRed,
+              0, (records.map((e) => e.decelZ5).reduce((a, b) => a > b ? a : b) + 5).clamp(20, 100),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildChartCard(String title, List<FlSpot> spots, Color color, double minY, double maxY) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: AppTheme.glassDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("CORRELACIÓN NEURO-MECÁNICA (IRI vs DESACELERACIONES)", style: TextStyle(fontWeight: FontWeight.bold)),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
           const SizedBox(height: 32),
           SizedBox(
-            height: 300,
+            height: 200,
             child: LineChart(
               LineChartData(
-                gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (value) => FlLine(color: AppTheme.glassBorder, strokeWidth: 1)),
-                titlesData: FlTitlesData(show: true, rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)), topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false))),
+                minY: minY,
+                maxY: maxY,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  getDrawingHorizontalLine: (value) => FlLine(color: AppTheme.glassBorder, strokeWidth: 1),
+                ),
+                titlesData: FlTitlesData(
+                  show: true,
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 40,
+                      getTitlesWidget: (value, meta) => Text(value.toInt().toString(), style: TextStyle(color: AppTheme.textSecondary, fontSize: 10)),
+                    ),
+                  ),
+                ),
                 borderData: FlBorderData(show: false),
                 lineBarsData: [
                   LineChartBarData(
-                    spots: const [FlSpot(0, 85), FlSpot(2, 80), FlSpot(4, 75), FlSpot(6, 60), FlSpot(8, 55), FlSpot(10, 50)],
+                    spots: spots,
                     isCurved: true,
-                    color: AppTheme.accentGreen,
+                    color: color,
                     barWidth: 3,
-                    dotData: FlDotData(show: false),
-                    belowBarData: BarAreaData(show: true, color: AppTheme.accentGreen.withOpacity(0.1)),
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
+                        radius: 4,
+                        color: color,
+                        strokeWidth: 2,
+                        strokeColor: Colors.white,
+                      ),
+                    ),
+                    belowBarData: BarAreaData(show: true, color: color.withOpacity(0.1)),
                   ),
                 ],
               ),

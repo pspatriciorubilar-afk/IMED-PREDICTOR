@@ -6,23 +6,23 @@
 
 const THRESH = { iriCritical: 60, lapses: 2, iriOptimal: 85 };
 
-// ─── Persistence Logic ───
-(function loadSettings() {
-    const saved = localStorage.getItem('imed_predictor_settings');
-    if (saved) {
-        try {
-            const parsed = JSON.parse(saved);
-            Object.assign(THRESH, parsed);
-            console.log("IMED: Configuración de umbrales cargada.", THRESH);
-        } catch (e) { console.error("IMED: Error al cargar configuración:", e); }
-    }
-})();
+// ─── Persistence Logic (Synchronous Load) ───
+const savedLocal = localStorage.getItem('imed_predictor_settings');
+if (savedLocal) {
+    try {
+        const parsed = JSON.parse(savedLocal);
+        Object.assign(THRESH, parsed);
+        console.log("IMED: Configuración local cargada:", THRESH);
+    } catch (e) { console.error("Error parsing local settings:", e); }
+}
 
 let db, auth;
 let unsubscribe = null;
 let allPerformance = [];
 let gAthletesCache = [];
 let correlationChart = null;
+let teamTrendChart = null;
+let riskDistChart = null;
 let reportCharts = [];
 let selectedGpsBrand = 'auto';
 let selectedFile = null;
@@ -47,6 +47,18 @@ try {
 } catch (e) { console.error("Firebase Init Error:", e); }
 
 async function init() {
+    // ─── Cargar Configuración del Sistema (Persistence) ───
+    try {
+        const savedLocal = localStorage.getItem('imed_predictor_settings');
+        if (savedLocal) Object.assign(THRESH, JSON.parse(savedLocal));
+
+        const configDoc = await db.collection('system_config').doc('thresholds').get();
+        if (configDoc.exists) {
+            Object.assign(THRESH, configDoc.data());
+            localStorage.setItem('imed_predictor_settings', JSON.stringify(THRESH));
+        }
+    } catch (e) { console.warn("Config Load Error:", e); }
+
     showView('dashboard');
     startRealtimeListener();
     startAthletesOnboarding();
@@ -113,63 +125,71 @@ function showView(viewId) {
 // ─── Engines ───
 function calculateWellness(p) {
     const w = p.wellness || {};
-    // Si no hay datos de bienestar, el score base es 100 para no penalizar el IVN por falta de inputs
-    if (!w.sleepHours && !p.sleep_hours) return 100;
+    // Si no hay datos de bienestar, retornamos null para que el sistema use el IRI como base neutra
+    if (!w.sleepHours && !p.sleep_hours) return null;
 
     const h = w.sleepHours ?? p.sleep_hours ?? 8;
     const q = w.sleepQuality ?? p.sleep_quality ?? 5;
     const s = w.stressLevel ?? p.stress ?? 1;
     const f = w.fatigueLevel ?? p.fatigue ?? 1;
+    const r = w.sorenessLevel ?? p.soreness ?? 1;
 
-    const hScore = (Math.min(8, h) / 8) * 40;
+    const hScore = (Math.min(8, h) / 8) * 20;
     const qScore = (q / 5) * 20;
     const sScore = ((6 - s) / 5) * 20;
     const fScore = ((6 - f) / 5) * 20;
-    return Math.round(hScore + qScore + sScore + fScore);
+    const rScore = ((6 - r) / 5) * 20;
+    return Math.round(hScore + qScore + sScore + fScore + rScore);
 }
 
 function getUnifiedStatus(p) {
-    const iri = p.iri || p.pvt?.metrics?.iri || null;
+    const pvtRaw = Number(p.iri || p.pvt?.metrics?.iri || 0);
     const metrics = p.pvt?.metrics || {};
-    const lapses = metrics.lapses ?? p.lapses ?? 0;
-    const wellness = calculateWellness(p);
+    const lapses = Number(metrics.lapses ?? p.lapses ?? 0);
+    const wellnessRaw = calculateWellness(p);
     
-    if (iri === null) {
+    if (!pvtRaw) {
         return {
-            level: 'GRAY', label: 'PENDIENTE', na: 0, wellness, ivn: 0,
+            level: 'GRAY', label: 'PENDIENTE', na: 0, wellness: 0, ivn: 0, iri: 0,
             badgeClass: 'badge-gray', ringClass: 'ring-gray'
         };
     }
 
-    const naBase = (iri * 0.6) + (wellness * 0.4);
-    const na = Math.max(0, naBase * (1 - (lapses * 0.1)));
+    // Algoritmo Fiel: Wellness + PVT = IRI (Promedio de disponibilidad)
+    // Si no hay wellness, se usa el PVT como base única.
+    const wellness = wellnessRaw !== null ? wellnessRaw : pvtRaw;
+    const iriFinal = Math.round((pvtRaw + wellness) / 2);
+    
+    // El NA (Neural Availability) se ve afectado por los lapsos (penalización técnica)
+    const na = Math.max(0, iriFinal * (1 - (lapses * 0.1)));
     
     const gps = p.gps || {};
     const decel = gps.decel_high || gps.decel_z5 || 0;
-    // Sincronización con Backend: Sprint se normaliza / 10 y pesos son 60/40
     const sprint = (gps.sprint_dist || gps.sprint_distance || 0) / 10;
     const load = (decel * 0.6) + (sprint * 0.4);
     
-    // Algoritmo IVN Sincronizado: (Carga Mecánica * ACWR) / (Disponibilidad Neural / 100)
     const acwr = p.acwr || 1.0;
-    // Usar ivn_score del backend si está disponible como base para el cálculo IVN, 
-    // pero manteniendo la lógica de umbrales del frontend para el estado.
-    const ivn = p.ivn_score !== undefined ? p.ivn_score : (na > 0 ? ((load * acwr) / (na / 100)) : load);
+    const ivn = na > 0 ? ((load * acwr) / (na / 100)) : load;
 
     let level = 'GREEN', label = 'ÓPTIMO';
-    // Aplicación de Umbrales Dinámicos desde Configuración
-    if (na < (THRESH.iriCritical || 60) || lapses >= (THRESH.lapses || 2) || ivn > 30) { 
+    
+    // Lógica de Estados: Basada estrictamente en el IRI FINAL (Wellness + PVT)
+    const critIri = THRESH.iriCritical || 60;
+    const optIri = THRESH.iriOptimal || 85;
+    const maxLapses = THRESH.lapses || 2;
+
+    if (iriFinal < critIri || lapses >= maxLapses || ivn > 30) { 
         level = 'RED'; label = 'RIESGO CRÍTICO'; 
     }
-    else if (na < (THRESH.iriOptimal || 85) || ivn > 15) { 
+    else if (iriFinal < optIri || ivn > 25) { 
         level = 'YELLOW'; label = 'ADVERTENCIA'; 
     }
 
     return { 
-        level, label, na, wellness, ivn,
+        level, label, na, wellness, ivn, iri: iriFinal,
         badgeClass: `badge-${level.toLowerCase()}`, 
         ringClass: `ring-${level.toLowerCase()}`,
-        action: p.action || '' // Preservar acción del backend si existe
+        action: p.action || ''
     };
 }
 
@@ -231,6 +251,97 @@ function renderDashboard() {
     if(document.getElementById('kpi-total')) document.getElementById('kpi-total').textContent = todayEvalsCount;
 
     updateChart();
+    updateAnalyticsCharts();
+}
+
+function updateAnalyticsCharts() {
+    const trendCtx = document.getElementById('teamTrendChart');
+    const riskCtx = document.getElementById('riskDistributionChart');
+    if (!trendCtx || !riskCtx) return;
+
+    // Obtener los últimos 7 días
+    const labels = [];
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        labels.push(d.toLocaleDateString('en-CA'));
+    }
+
+    // --- 1. Tendencias por Equipo ---
+    const teams = [...new Set(gAthletesCache.map(a => a.team || 'SNC'))];
+    const teamDatasets = teams.map((team, idx) => {
+        const colors = ['#00E5FF', '#BF5AF2', '#32D74B', '#FF9F0A', '#FF4D4D'];
+        const color = colors[idx % colors.length];
+        
+        const data = labels.map(day => {
+            const dayRecords = allPerformance.filter(p => {
+                const ath = gAthletesCache.find(a => a.id === p.athleteId);
+                return p.date === day && ath && (ath.team || 'SNC') === team;
+            });
+            if (!dayRecords.length) return null;
+            const avg = dayRecords.reduce((acc, r) => acc + getUnifiedStatus(r).iri, 0) / dayRecords.length;
+            return Math.round(avg);
+        });
+
+        return {
+            label: team,
+            data: data,
+            borderColor: color,
+            backgroundColor: 'transparent',
+            tension: 0.4,
+            borderWidth: 3,
+            pointRadius: 3,
+            spanGaps: true
+        };
+    });
+
+    if (teamTrendChart) teamTrendChart.destroy();
+    teamTrendChart = new Chart(trendCtx, {
+        type: 'line',
+        data: { labels, datasets: teamDatasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: true, position: 'top', labels: { color: '#636375', font: { size: 10 } } } },
+            scales: {
+                y: { min: 40, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#636375' } },
+                x: { grid: { display: false }, ticks: { color: '#636375' } }
+            }
+        }
+    });
+
+    // --- 2. Distribución de Riesgo (Stacked Area) ---
+    const riskDatasets = [
+        { label: 'ÓPTIMO', color: '#32D74B', level: 'GREEN' },
+        { label: 'ADVERTENCIA', color: '#FFD60A', level: 'YELLOW' },
+        { label: 'RIESGO CRÍTICO', color: '#FF4D4D', level: 'RED' }
+    ].map(r => {
+        const data = labels.map(day => {
+            return allPerformance.filter(p => p.date === day && getUnifiedStatus(p).level === r.level).length;
+        });
+        return {
+            label: r.label,
+            data: data,
+            borderColor: r.color,
+            backgroundColor: r.color + '22',
+            fill: true,
+            tension: 0.4,
+            borderWidth: 2
+        };
+    });
+
+    if (riskDistChart) riskDistChart.destroy();
+    riskDistChart = new Chart(riskCtx, {
+        type: 'line',
+        data: { labels, datasets: riskDatasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: true, position: 'top', labels: { color: '#636375', font: { size: 10 } } } },
+            scales: {
+                y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#636375', precision: 0 } },
+                x: { grid: { display: false }, ticks: { color: '#636375' } }
+            }
+        }
+    });
 }
 
 function updateChart() {
@@ -298,7 +409,7 @@ function renderSncTable() {
             <tr onclick="openSncModal('${a.id}')">
                 <td><strong>${a.fullName}</strong></td>
                 <td><span class="badge badge-gray">${a.team || 'SNC'}</span></td>
-                <td><strong class="num-mono" style="font-size:15px">${p ? Math.round(p.iri) : '—'}</strong></td>
+                <td><strong class="num-mono" style="font-size:15px">${p ? Math.round(snc.iri) : '—'}</strong></td>
                 <td><span class="risk-badge ${snc.badgeClass}">${snc.label}</span></td>
                 <td><span class="risk-badge ${latDev.class}">${latDev.label}</span></td>
                 <td><span class="risk-badge ${tendency.class}">${tendency.label}</span></td>
@@ -387,9 +498,9 @@ function renderAthletesTable(f = '') {
                                             <strong>${a.fullName}</strong>
                                         </div>
                                     </td>
-                                    <td><span class="badge ${status.badgeClass}">${status.label}</span></td>
+                                    <td><span class="risk-badge ${status.badgeClass}">${status.label}</span></td>
                                     <td>${lastEval ? lastEval.date : '—'}</td>
-                                    <td>${lastEval ? `IRI: ${Math.round(lastEval.iri)}` : 'Pendiente'}</td>
+                                    <td>${lastEval ? `IRI: ${Math.round(status.iri)}` : 'Pendiente'}</td>
                                     <td><button class="btn-mini">Ficha Completa</button></td>
                                     <td><button class="btn-delete" onclick="event.stopPropagation(); deleteAthlete('${a.id}')">🗑</button></td>
                                 </tr>
@@ -462,93 +573,167 @@ async function exportAthletePDF(id) {
     const a = gAthletesCache.find(x => x.id === id);
     if (!a) return;
     
-    const records = allPerformance.filter(p => String(p.athleteId).trim() === String(id).trim());
-    const latest = records[0] || {};
-    const avgIri = records.length ? Math.round(records.reduce((acc, p) => acc + (p.iri || 0), 0) / records.length) : '—';
-    const totalEvals = records.length;
+    // Obtener y procesar registros
+    const records = allPerformance
+        .filter(p => String(p.athleteId).trim() === String(id).trim())
+        .sort((a,b) => new Date(b.date) - new Date(a.date));
+    
+    const latest = records[0] ? getUnifiedStatus(records[0]) : null;
+    const historyData = records.slice(0, 7).reverse(); // Para el gráfico (últimos 7 días)
+    
+    // Calcular promedio del IRI Final
+    const totalIriSum = records.reduce((acc, p) => acc + (getUnifiedStatus(p).iri || 0), 0);
+    const avgIri = records.length ? Math.round(totalIriSum / records.length) : '—';
+
+    // Generar conclusiones dinámicas basadas en el algoritmo
+    let conclusionText = "El deportista presenta una disponibilidad neural óptima. Se recomienda continuar con el plan de entrenamiento programado sin restricciones.";
+    let conclusionColor = "#32D74B";
+
+    if (latest) {
+        if (latest.level === 'RED') {
+            conclusionText = "ALERTA CRÍTICA: Se detecta un alto riesgo de vulnerabilidad neuro-mecánica. Es imperativo reducir la carga mecánica (desaceleraciones) y priorizar la recuperación biológica inmediata.";
+            conclusionColor = "#FF4D4D";
+        } else if (latest.level === 'YELLOW') {
+            conclusionText = "ADVERTENCIA: El índice IRI se encuentra por debajo del umbral óptimo o se detecta fatiga acumulada. Se recomienda moderar tareas de alta precisión y monitorear la calidad del sueño.";
+            conclusionColor = "#FFD60A";
+        }
+        
+        // Agregar nota específica sobre lapses o IVN si aplica
+        if (latest.ivn > 25) conclusionText += " El elevado índice IVN sugiere una desproporción entre la carga mecánica y la capacidad de recuperación actual.";
+    }
 
     const element = document.createElement('div');
     element.style.padding = '40px';
+    element.style.width = '750px';
     element.style.background = '#0a0c0f';
     element.style.color = '#ffffff';
     element.style.fontFamily = 'Inter, sans-serif';
-    
-    // Preparar tabla de historia (últimos 5)
-    const historyRows = records.slice(0, 5).map(r => `
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05)">
-            <td style="padding:10px 0; font-size:11px">${r.date}</td>
-            <td style="padding:10px 0; font-size:11px; color:#32D74B; font-weight:bold">${Math.round(r.iri)}%</td>
-            <td style="padding:10px 0; font-size:11px">${r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? '—'}ms</td>
-            <td style="padding:10px 0; font-size:11px">${r.wellness?.sleepHours ?? '—'}h</td>
-            <td style="padding:10px 0; font-size:11px">${r.wellness?.stressLevel ?? '—'}/5</td>
-        </tr>
-    `).join('');
+
+    // Preparar filas de historia (incluyendo todos los pilares de wellness)
+    const historyRows = records.slice(0, 6).map(r => {
+        const st = getUnifiedStatus(r);
+        const w = r.wellness || {};
+        return `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05)">
+                <td style="padding:10px 0; font-size:10px">${r.date}</td>
+                <td style="padding:10px 0; font-size:11px; color:${st.level==='RED'?'#FF4D4D':(st.level==='YELLOW'?'#FFD60A':'#32D74B')}; font-weight:bold">${st.iri}%</td>
+                <td style="padding:10px 0; font-size:10px">${w.sleepHours||'—'}h (${w.sleepQuality||'—'}/5)</td>
+                <td style="padding:10px 0; font-size:10px">${w.stressLevel||'—'}/5</td>
+                <td style="padding:10px 0; font-size:10px">${w.fatigueLevel||'—'}/5</td>
+                <td style="padding:10px 0; font-size:10px">${w.sorenessLevel||'—'}/5</td>
+                <td style="padding:10px 0; font-size:10px">${Math.round(st.ivn)}</td>
+            </tr>
+        `;
+    }).join('');
 
     element.innerHTML = `
-        <div style="border-bottom: 2px solid #00E5FF; padding-bottom: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center">
+        <div style="border-bottom: 2px solid #00E5FF; padding-bottom: 20px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center">
             <div>
-                <h1 style="margin:0; font-size: 24px; color: #00E5FF">IMED PREDICTOR — REPORTE ÉLITE</h1>
-                <p style="margin:5px 0 0; font-size: 11px; color: #636375; letter-spacing:1px">NEURO-MECHANICAL VULNERABILITY INDEX (IVN)</p>
+                <h1 style="margin:0; font-size: 24px; color: #00E5FF; letter-spacing:-0.5px">IMED PREDICTOR — REPORTE ÉLITE</h1>
+                <p style="margin:5px 0 0; font-size: 11px; color: #636375; font-weight:700; letter-spacing:1.5px">SISTEMA DE NEURO-INTELIGENCIA DEPORTIVA</p>
             </div>
             <div style="text-align: right">
-                <p style="margin:0; font-size: 16px; font-weight: 800">${a.fullName.toUpperCase()}</p>
-                <p style="margin:5px 0 0; font-size: 10px; color: #636375">FECHA: ${new Date().toLocaleDateString('es-CL')}</p>
+                <p style="margin:0; font-size: 18px; font-weight: 900; color:#fff">${a.fullName.toUpperCase()}</p>
+                <p style="margin:5px 0 0; font-size: 10px; color: #00E5FF; font-weight:700">${a.team || 'SNC'}</p>
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 30px">
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-bottom: 25px">
             <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); text-align:center">
-                <div style="font-size:9px; color:#636375; margin-bottom:5px">ESTADO ACTUAL</div>
-                <div style="font-size:16px; font-weight:bold; color:#00E5FF">${latest.iri ? Math.round(latest.iri)+'%' : 'PENDIENTE'}</div>
+                <div style="font-size:9px; color:#636375; margin-bottom:5px; font-weight:700">IRI ACTUAL (PROCESADO)</div>
+                <div style="font-size:22px; font-weight:900; color:${conclusionColor}">${latest ? latest.iri+'%' : 'PENDIENTE'}</div>
             </div>
             <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); text-align:center">
-                <div style="font-size:9px; color:#636375; margin-bottom:5px">PROM. HISTÓRICO</div>
-                <div style="font-size:16px; font-weight:bold; color:#32D74B">${avgIri}%</div>
+                <div style="font-size:9px; color:#636375; margin-bottom:5px; font-weight:700">PROM. HISTÓRICO</div>
+                <div style="font-size:22px; font-weight:900; color:#fff">${avgIri}%</div>
             </div>
             <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); text-align:center">
-                <div style="font-size:9px; color:#636375; margin-bottom:5px">SESIONES TOTALES</div>
-                <div style="font-size:16px; font-weight:bold; color:#BF5AF2">${totalEvals}</div>
+                <div style="font-size:9px; color:#636375; margin-bottom:5px; font-weight:700">ESTADO DE RIESGO</div>
+                <div style="font-size:12px; font-weight:900; color:${conclusionColor}; margin-top:8px">${latest ? latest.label : 'N/A'}</div>
             </div>
         </div>
 
-        <div style="margin-bottom: 30px">
-            <h3 style="font-size: 12px; color:#00E5FF; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom:15px">ÚLTIMAS EVALUACIONES (DETALLE)</h3>
+        <div style="margin-bottom: 25px; background: rgba(255,255,255,0.02); padding:20px; border-radius:12px; border:1px solid rgba(255,255,255,0.05)">
+            <h3 style="font-size: 11px; color:#00E5FF; margin-top:0; margin-bottom:15px; font-weight:800; letter-spacing:1px">EVOLUCIÓN HISTÓRICA DEL IRI</h3>
+            <canvas id="pdf-chart" width="700" height="180"></canvas>
+        </div>
+
+        <div style="margin-bottom: 25px">
+            <h3 style="font-size: 11px; color:#00E5FF; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom:15px; font-weight:800; letter-spacing:1px">DESGLOSE DE BIOMARCADORES (ÚLTIMAS SESIONES)</h3>
             <table style="width:100%; border-collapse: collapse; text-align:left">
                 <thead>
-                    <tr style="color:#636375; font-size:9px; text-transform:uppercase">
+                    <tr style="color:#636375; font-size:9px; text-transform:uppercase; border-bottom: 1px solid rgba(255,255,255,0.1)">
                         <th style="padding-bottom:10px">Fecha</th>
-                        <th style="padding-bottom:10px">Índice IRI</th>
-                        <th style="padding-bottom:10px">Latencia</th>
+                        <th style="padding-bottom:10px">IRI Final</th>
                         <th style="padding-bottom:10px">Sueño</th>
                         <th style="padding-bottom:10px">Estrés</th>
+                        <th style="padding-bottom:10px">Fatiga</th>
+                        <th style="padding-bottom:10px">Dolor</th>
+                        <th style="padding-bottom:10px">IVN</th>
                     </tr>
                 </thead>
                 <tbody>${historyRows}</tbody>
             </table>
         </div>
 
-        <div style="margin-bottom: 30px">
-            <h3 style="font-size: 12px; color:#00E5FF; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom:10px">OBSERVACIONES TÉCNICAS</h3>
-            <div style="background: rgba(255,255,255,0.02); padding: 20px; border-radius: 10px; font-size: 12px; line-height: 1.6; color: #8a8a9e; border: 1px solid rgba(255,255,255,0.03)">
-                ${a.notes || 'El atleta mantiene una progresión estable. Se recomienda monitorear la carga mecánica en relación a la variabilidad de la latencia observada en las últimas 48 horas.'}
+        <div style="margin-bottom: 20px">
+            <h3 style="font-size: 11px; color:#00E5FF; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom:10px; font-weight:800; letter-spacing:1px">CONCLUSIONES Y RECOMENDACIONES CLÍNICAS</h3>
+            <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 10px; font-size: 12px; line-height: 1.6; color: #fff; border: 1px solid ${conclusionColor}44">
+                <strong style="color:${conclusionColor}">DIAGNÓSTICO:</strong> ${conclusionText}
+                <p style="margin-top:10px; color:#8a8a9e; font-size:11px"><em>*Este informe ha sido generado automáticamente por el motor de inteligencia IMED Predictor basado en el algoritmo de Vulnerabilidad Neuro-Mecánica.</em></p>
             </div>
         </div>
 
-        <div style="margin-top: 40px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 20px; display:flex; justify-content:space-between; align-items:center">
-            <div style="font-size: 9px; color: #444452">ID_SNC: ${id}</div>
+        <div style="margin-top: 30px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px; display:flex; justify-content:space-between; align-items:center">
+            <div style="font-size: 9px; color: #444452">UID: ${id} | AUTH: IMED_SYSTEM_v4</div>
             <div style="font-size: 9px; color: #636375; text-align:right">© 2026 IMED PREDICTOR — TECNOLOGÍA NEURO-MECÁNICA</div>
         </div>
     `;
 
+    document.body.appendChild(element);
+
+    // Renderizar gráfico para el PDF
+    const ctx = element.querySelector('#pdf-chart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: historyData.map(d => d.date),
+            datasets: [{
+                label: 'IRI Evolución',
+                data: historyData.map(d => getUnifiedStatus(d).iri),
+                borderColor: '#00E5FF',
+                backgroundColor: 'rgba(0, 229, 255, 0.1)',
+                borderWidth: 3,
+                tension: 0.4,
+                pointRadius: 4,
+                pointBackgroundColor: '#00E5FF',
+                fill: true
+            }]
+        },
+        options: {
+            responsive: false,
+            animation: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { min: 0, max: 100, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#636375', font: { size: 9 } } },
+                x: { grid: { display: false }, ticks: { color: '#636375', font: { size: 9 } } }
+            }
+        }
+    });
+
     const opt = {
-        margin: 0.5,
-        filename: `Informe_Evolutivo_${a.fullName.replace(/\\s+/g, '_')}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
+        margin: [0, 0],
+        filename: `Reporte_Elite_IMED_${a.fullName.replace(/\\s+/g, '_')}.pdf`,
+        image: { type: 'jpeg', quality: 1.0 },
         html2canvas: { scale: 2, backgroundColor: '#0a0c0f', useCORS: true },
-        jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+        jsPDF: { unit: 'px', format: [792, 1056], hotfixes: ['px_scaling'] }
     };
 
-    html2pdf().set(opt).from(element).save();
+    try {
+        await html2pdf().set(opt).from(element).save();
+    } finally {
+        document.body.removeChild(element);
+    }
 }
 
 async function deleteAthlete(id) {
@@ -845,18 +1030,34 @@ async function deleteAthlete(id) {
     }
 }
 
-function saveSettings() {
-    THRESH.iriCritical = parseInt(document.getElementById('threshold-iri').value) || 60;
-    THRESH.lapses = parseInt(document.getElementById('threshold-lapses').value) || 2;
-    THRESH.iriOptimal = parseInt(document.getElementById('threshold-iri-opt').value) || 85;
+async function saveSettings() {
+    const valIri = document.getElementById('threshold-iri').value;
+    const valLapses = document.getElementById('threshold-lapses').value;
+    const valIriOpt = document.getElementById('threshold-iri-opt').value;
+
+    if (valIri !== "") THRESH.iriCritical = Number(valIri);
+    if (valLapses !== "") THRESH.lapses = Number(valLapses);
+    if (valIriOpt !== "") THRESH.iriOptimal = Number(valIriOpt);
     
-    // Guardar permanentemente en el navegador
+    // 1. Forzar persistencia inmediata
     localStorage.setItem('imed_predictor_settings', JSON.stringify(THRESH));
     
-    renderDashboard();
-    renderSncTable(); 
+    // 2. Sincronizar con el sistema (Firestore)
+    try {
+        await db.collection('system_config').doc('thresholds').set({
+            ...THRESH,
+            lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        console.log("IMED: Ajustes guardados en la nube.");
+    } catch (e) { 
+        console.error("IMED: Error de persistencia en nube:", e);
+    }
     
-    alert("Configuración guardada: Los nuevos umbrales se han aplicado a todos los cálculos del sistema.");
+    renderDashboard();
+    renderSncTable();
+    renderAthletesTable();
+    
+    alert("Ajustes guardados correctamente en el sistema.");
 }
 
 function refreshData() { location.reload(); }
