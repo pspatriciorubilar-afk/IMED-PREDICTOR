@@ -309,7 +309,11 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
             ad = athlete_snap.to_dict()
             athlete_name = f"{ad.get('firstName','')} {ad.get('lastName','')}".strip()
 
-        # Payload para Daily_Performance (Modo Neuro-Only o Preservar GPS)
+        # Datos del PVT
+        pvt = m_data.get("pvt", {})
+        mean_latency = pvt.get("metrics", {}).get("meanLatency", m_data.get("latency", 0))
+
+        # Payload para Daily_Performance
         doc_id = f"{athlete_id}_{date_str}"
         payload = {
             "athleteId": athlete_id,
@@ -317,11 +321,12 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
             "date": date_str,
             "iri": m_data.get("iri"),
             "status": m_data.get("status"),
-            "lapses": m_data.get("pvt", {}).get("metrics", {}).get("lapses", 0),
+            "lapses": pvt.get("metrics", {}).get("lapses", 0),
+            "latency": mean_latency,
             "wellness": m_data.get("wellness"),
             "pvt": m_data.get("pvt"),
             "timestamp": firestore.SERVER_TIMESTAMP,
-            "sync_method": "auto_trigger_v3"
+            "sync_method": "auto_trigger_v411"
         }
         
         # Guardar en Daily_Performance (merge=True para no borrar datos GPS si ya existen)
@@ -351,18 +356,60 @@ def force_sync_athlete(req: https_fn.CallableRequest) -> dict:
     athlete_snap = db.collection("athletes").document(athlete_id).get()
     athlete_name = f"{athlete_snap.to_dict().get('firstName','')} {athlete_snap.to_dict().get('lastName','')}".strip() if athlete_snap.exists else athlete_id
 
+    pvt = m_data.get("pvt", {})
+    mean_latency = pvt.get("metrics", {}).get("meanLatency", m_data.get("latency", 0))
+
     payload = {
         "athleteId": athlete_id,
         "athleteName": athlete_name,
         "date": date_str,
         "iri": m_data.get("iri"),
         "status": m_data.get("status"),
-        "lapses": m_data.get("pvt", {}).get("metrics", {}).get("lapses", 0),
+        "lapses": pvt.get("metrics", {}).get("lapses", 0),
+        "latency": mean_latency,
         "wellness": m_data.get("wellness"),
-        "pvt": m_data.get("pvt"),
+        "pvt": pvt,
         "timestamp": firestore.SERVER_TIMESTAMP,
         "sync_method": "forced_recovery"
     }
     
     db.collection("Daily_Performance").document(f"{athlete_id}_{date_str}").set(payload, merge=True)
     return {"status": "success", "message": f"Datos de {athlete_name} sincronizados."}
+
+@https_fn.on_call()
+def sync_athlete_history(req: https_fn.CallableRequest) -> dict:
+    """
+    Fuerza la sincronización completa del historial de un atleta desde 'measurements' a 'Daily_Performance'.
+    Resuelve problemas de datos truncados o faltantes en el Dashboard.
+    """
+    athlete_id = req.data.get("athleteId")
+    if not athlete_id:
+        return {"error": "athleteId requerido"}
+        
+    db = firestore.client()
+    try:
+        m_docs = db.collection("athletes").document(athlete_id).collection("measurements").get()
+        synced = 0
+        for doc in m_docs:
+            m = doc.to_dict()
+            raw_ts = m.get("timestamp", "")
+            date = m.get("date") or (raw_ts[:10] if isinstance(raw_ts, str) else "")
+            if not date: continue
+            
+            pvt = m.get("pvt", {})
+            mean_lat = pvt.get("metrics", {}).get("meanLatency", m.get("latency", 0))
+            
+            db.collection("Daily_Performance").document(f"{athlete_id}_{date}").set({
+                "athleteId": athlete_id,
+                "date": date,
+                "iri": m.get("iri", 0),
+                "pvt": pvt,
+                "latency": mean_lat,
+                "wellness": m.get("wellness", {}),
+                "sync_method": "manual_sync_repair_v4"
+            }, merge=True)
+            synced += 1
+            
+        return {"success": True, "synced_records": synced}
+    except Exception as e:
+        return {"success": False, "error": str(e)}

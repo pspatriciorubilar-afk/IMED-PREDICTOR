@@ -201,6 +201,13 @@ class DashboardScreen extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             _buildChartCard(
+              "LATENCIA SNC (MS)",
+              records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.latency)).toList(),
+              AppTheme.accentBlue,
+              150, 550,
+            ),
+            const SizedBox(height: 24),
+            _buildChartCard(
               "DESACELERACIONES (Z5)",
               records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.decelZ5)).toList(),
               AppTheme.accentRed,

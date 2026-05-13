@@ -12,6 +12,7 @@ class PerformanceModel {
   final String riskLevel;
   final String ivnLabel;
   final String action;
+  final double latency;
   final DateTime timestamp;
 
   PerformanceModel({
@@ -22,6 +23,7 @@ class PerformanceModel {
     required this.iri,
     required this.lapses,
     required this.decelZ5,
+    required this.latency,
     required this.ivnScore,
     required this.riskLevel,
     required this.ivnLabel,
@@ -32,6 +34,8 @@ class PerformanceModel {
   factory PerformanceModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     final gps = data['gps'] as Map<String, dynamic>? ?? {};
+    final pvt = data['pvt'] as Map<String, dynamic>? ?? {};
+    final metrics = pvt['metrics'] as Map<String, dynamic>? ?? {};
     
     return PerformanceModel(
       id: doc.id,
@@ -41,6 +45,7 @@ class PerformanceModel {
       iri: (data['iri'] ?? 75.0).toDouble(),
       lapses: data['lapses'] ?? 0,
       decelZ5: (gps['decel_z5'] ?? gps['decel_high'] ?? 0.0).toDouble(),
+      latency: (metrics['meanLatency'] ?? data['latency'] ?? 0.0).toDouble(),
       ivnScore: (data['ivn_score'] ?? 0.0).toDouble(),
       riskLevel: data['risk_level'] ?? 'GREEN',
       ivnLabel: data['ivn_label'] ?? 'ESTABLE',
