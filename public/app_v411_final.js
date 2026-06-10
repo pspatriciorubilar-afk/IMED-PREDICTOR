@@ -259,9 +259,10 @@ function updateAnalyticsCharts() {
     const riskCtx = document.getElementById('riskDistributionChart');
     if (!trendCtx || !riskCtx) return;
 
-    // Obtener los últimos 7 días
+    // Obtener los días seleccionados del filtro
+    const days = parseInt(document.getElementById('chart-filter')?.value || 7);
     const labels = [];
-    for (let i = 6; i >= 0; i--) {
+    for (let i = days - 1; i >= 0; i--) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         labels.push(d.toLocaleDateString('en-CA'));
@@ -275,7 +276,7 @@ function updateAnalyticsCharts() {
         
         const data = labels.map(day => {
             const dayRecords = allPerformance.filter(p => {
-                const ath = gAthletesCache.find(a => a.id === p.athleteId);
+                const ath = gAthletesCache.find(a => String(a.id).trim() === String(p.athleteId).trim());
                 return p.date === day && ath && (ath.team || 'SNC') === team;
             });
             if (!dayRecords.length) return null;
@@ -375,6 +376,9 @@ function updateChart() {
             }
         }
     });
+    
+    // Sincronizar actualización de los otros gráficos
+    updateAnalyticsCharts();
 }
 
 function renderSncTable() {
@@ -558,7 +562,7 @@ async function openAthleteProfile(id) {
 
         <div class="panel glass" style="margin-top:20px">
             <div class="panel-label">NOTAS DE SEGUIMIENTO TÉCNICO</div>
-            <p style="font-size:13px; color:var(--text-2); line-height:1.5">${a.notes || 'No hay notas técnicas registradas para este atleta. Utilice este espacio para documentar observaciones de campo o recomendaciones clínicas.'}</p>
+            <p style="font-size:13px; color:var(--text-2); line-height:1.5">${a.notes || 'No hay notas técnicas registradas para este atleta. Utilice este espacio para documentar observaciones de campo o recomendaciones de rendimiento.'}</p>
         </div>
         
         <div style="margin-top:20px; display:flex; gap:10px">
@@ -609,19 +613,27 @@ async function exportAthletePDF(id) {
     element.style.color = '#ffffff';
     element.style.fontFamily = 'Inter, sans-serif';
 
-    // Preparar filas de historia (incluyendo todos los pilares de wellness)
+    // Preparar filas de historia (incluyendo todos los pilares de wellness y ex-gaussian)
     const historyRows = records.slice(0, 6).map(r => {
         const st = getUnifiedStatus(r);
-        const w = r.wellness || {};
+        const aa = r.advanced_analysis || {};
+        const mu = aa.mu_ms != null ? aa.mu_ms.toFixed(1) : '—';
+        const sigma = aa.sigma_ms != null ? aa.sigma_ms.toFixed(1) : '—';
+        const tau = aa.tau_ms != null ? aa.tau_ms.toFixed(1) : '—';
+        const tauZ = aa.tau_zscore != null ? aa.tau_zscore.toFixed(2) : '—';
+        const wellnessVal = calculateWellness(r) != null ? calculateWellness(r) : '—';
+        const wZ = aa.wellness_zscore != null ? aa.wellness_zscore.toFixed(2) : '—';
+
         return `
             <tr style="border-bottom: 1px solid rgba(255,255,255,0.05)">
                 <td style="padding:10px 0; font-size:10px">${r.date}</td>
                 <td style="padding:10px 0; font-size:11px; color:${st.level==='RED'?'#FF4D4D':(st.level==='YELLOW'?'#FFD60A':'#32D74B')}; font-weight:bold">${st.iri}%</td>
-                <td style="padding:10px 0; font-size:10px">${w.sleepHours||'—'}h (${w.sleepQuality||'—'}/5)</td>
-                <td style="padding:10px 0; font-size:10px">${w.stressLevel||'—'}/5</td>
-                <td style="padding:10px 0; font-size:10px">${w.fatigueLevel||'—'}/5</td>
-                <td style="padding:10px 0; font-size:10px">${w.sorenessLevel||'—'}/5</td>
-                <td style="padding:10px 0; font-size:10px">${Math.round(st.ivn)}</td>
+                <td style="padding:10px 0; font-size:10px">${mu}</td>
+                <td style="padding:10px 0; font-size:10px">${sigma}</td>
+                <td style="padding:10px 0; font-size:10px">${tau}</td>
+                <td style="padding:10px 0; font-size:10px; color:${tauZ !== '—' && Number(tauZ) > 1.5 ? '#FF4D4D' : (tauZ !== '—' && Number(tauZ) > 1.0 ? '#FFD60A' : '#32D74B')}">${tauZ}</td>
+                <td style="padding:10px 0; font-size:10px">${wellnessVal}%</td>
+                <td style="padding:10px 0; font-size:10px; color:${wZ !== '—' && Number(wZ) < -1.2 ? '#FF4D4D' : (wZ !== '—' && Number(wZ) < -0.8 ? '#FFD60A' : '#32D74B')}">${wZ}</td>
             </tr>
         `;
     }).join('');
@@ -665,11 +677,12 @@ async function exportAthletePDF(id) {
                     <tr style="color:#636375; font-size:9px; text-transform:uppercase; border-bottom: 1px solid rgba(255,255,255,0.1)">
                         <th style="padding-bottom:10px">Fecha</th>
                         <th style="padding-bottom:10px">IRI Final</th>
-                        <th style="padding-bottom:10px">Sueño</th>
-                        <th style="padding-bottom:10px">Estrés</th>
-                        <th style="padding-bottom:10px">Fatiga</th>
-                        <th style="padding-bottom:10px">Dolor</th>
-                        <th style="padding-bottom:10px">IVN</th>
+                        <th style="padding-bottom:10px">mu (ms)</th>
+                        <th style="padding-bottom:10px">sigma (ms)</th>
+                        <th style="padding-bottom:10px">tau (ms)</th>
+                        <th style="padding-bottom:10px">tau Z-Score</th>
+                        <th style="padding-bottom:10px">Wellness</th>
+                        <th style="padding-bottom:10px">Wellness Z-Score</th>
                     </tr>
                 </thead>
                 <tbody>${historyRows}</tbody>
@@ -677,7 +690,7 @@ async function exportAthletePDF(id) {
         </div>
 
         <div style="margin-bottom: 20px">
-            <h3 style="font-size: 11px; color:#00E5FF; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom:10px; font-weight:800; letter-spacing:1px">CONCLUSIONES Y RECOMENDACIONES CLÍNICAS</h3>
+            <h3 style="font-size: 11px; color:#00E5FF; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; margin-bottom:10px; font-weight:800; letter-spacing:1px">CONCLUSIONES Y RECOMENDACIONES DE RENDIMIENTO</h3>
             <div style="background: rgba(255,255,255,0.02); padding: 15px; border-radius: 10px; font-size: 12px; line-height: 1.6; color: #fff; border: 1px solid ${conclusionColor}44">
                 <strong style="color:${conclusionColor}">DIAGNÓSTICO:</strong> ${conclusionText}
                 <p style="margin-top:10px; color:#8a8a9e; font-size:11px"><em>*Este informe ha sido generado automáticamente por el motor de inteligencia IMED Predictor basado en el algoritmo de Vulnerabilidad Neuro-Mecánica.</em></p>
@@ -805,7 +818,7 @@ function openSncModal(id) {
                 ${renderDetailRow('Tiempo Más Rápido', pvt.fastest ?? p.best_reaction ?? 220, 'ms', 400, '#32D74B')}
                 ${renderDetailRow('Latencia Media', pvt.meanLatency ?? p.avg_reaction ?? 280, 'ms', 400, '#32D74B')}
                 ${renderDetailRow('Tiempo Más Lento', pvt.slowest ?? p.worst_reaction ?? 350, 'ms', 500, '#FFD60A')}
-                ${renderDetailRow('Lapsos de Atención', pvt.lapses ?? p.lapses ?? 0, '/ 10 ensayos', 10, '#FF4D4D')}
+                ${renderDetailRow('Lapsos de Atención', pvt.lapses ?? p.lapses ?? 0, '/ 30 ensayos', 30, '#FF4D4D')}
             </div>
             <div class="detail-box">
                 <div class="detail-box-header">💤 WELLNESS — ESTADO SUBJETIVO</div>
@@ -815,6 +828,7 @@ function openSncModal(id) {
                 ${renderDetailRow('Fatiga Percibida', p.wellness?.fatigueLevel ?? p.fatigue ?? 2, '/5', 5, '#FFD60A')}
             </div>
         </div>
+        ${renderExGaussPanel(p)}
         <div class="prescription-box">
             <div class="prescription-title">⚡ DIAGNÓSTICO INTEGRADO NA-GPS — PRESCRIPCIÓN</div>
             <div class="prescription-text">
@@ -853,6 +867,107 @@ function renderDetailRow(label, val, unit, max, color) {
     return `<div class="detail-row"><div class="detail-label">${label}</div><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${perc}%; background:${color}"></div></div><div class="detail-value" style="color:${color}">${val}${unit}</div></div>`;
 }
 
+/**
+ * Panel de Análisis Ex-Gaussiano — Análisis Distribucional Avanzado
+ * Renderiza μ, σ, τ y Z-scores si advanced_analysis existe en el documento.
+ * Implementa fallbacks resilientes para evitar crashes cuando el worker
+ * aún no ha procesado al atleta (datos insuficientes o primer día).
+ */
+function renderExGaussPanel(p) {
+    const aa = p?.advanced_analysis;
+
+    // ── Sin datos: mostrar estado de calibración ──
+    if (!aa || (aa.status === 'INSUFFICIENT_TRIALS' && aa.mu_ms == null)) {
+        const n = aa?.n_trials ?? p?.pvt?.metrics?.trials?.length ?? '?';
+        return `
+        <div class="prescription-box" style="border-left: 3px solid #636375; margin-bottom: 12px">
+            <div class="prescription-title" style="color:#636375">🔬 ANÁLISIS EX-GAUSSIANO — CALIBRANDO</div>
+            <div class="prescription-text" style="font-size:12px; color:var(--text-3)">
+                El análisis distribucional avanzado (μ, σ, τ) requiere <strong>≥ 20 trials PVT</strong> por sesión.<br>
+                Trials registrados hoy: <strong>${n}</strong>. 
+                El worker procesará este atleta cuando tenga suficientes datos.<br>
+                <em style="opacity:0.5">Protocolo PVT-B activo: se requieren 30 estímulos por sesión.</em>
+            </div>
+        </div>`;
+    }
+
+    // ── Panel con datos Ex-Gaussianos ──
+    const mu    = aa.mu_ms    != null ? aa.mu_ms.toFixed(1)    : '—';
+    const sigma = aa.sigma_ms != null ? aa.sigma_ms.toFixed(1) : '—';
+    const tau   = aa.tau_ms   != null ? aa.tau_ms.toFixed(1)   : '—';
+    const n     = aa.n_trials ?? '—';
+
+    const tauZ  = aa.tau_zscore      != null ? aa.tau_zscore.toFixed(2)      : null;
+    const wZ    = aa.wellness_zscore  != null ? aa.wellness_zscore.toFixed(2) : null;
+    const baseN = aa.tau_baseline_n   ?? 0;
+
+    // Color del τ según Z-score
+    const tauColor = tauZ == null ? '#636375'
+        : tauZ > 1.5 ? '#FF4D4D'
+        : tauZ > 1.0 ? '#FFD60A'
+        : '#32D74B';
+
+    // Color del status del semáforo Ex-Gaussiano
+    const statusColor = aa.readiness_status === 'RED'    ? '#FF4D4D'
+                      : aa.readiness_status === 'YELLOW' ? '#FFD60A'
+                      : aa.readiness_status === 'GREEN'  ? '#32D74B'
+                      : '#636375';
+
+    const zScoreRow = (tauZ || wZ) ? `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px">
+            <div style="background:rgba(255,255,255,0.03); border-radius:8px; padding:10px; text-align:center">
+                <div style="font-size:9px; color:#636375; font-weight:700; margin-bottom:4px">τ Z-SCORE (21d)</div>
+                <div style="font-size:20px; font-weight:900; color:${tauColor}">${tauZ ?? '—'}</div>
+                <div style="font-size:9px; color:#636375; margin-top:2px">base: ${baseN} sesiones</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border-radius:8px; padding:10px; text-align:center">
+                <div style="font-size:9px; color:#636375; font-weight:700; margin-bottom:4px">WELLNESS Z-SCORE</div>
+                <div style="font-size:20px; font-weight:900; color:${wZ != null && wZ < -0.8 ? '#FFD60A' : '#32D74B'}">${wZ ?? '—'}</div>
+                <div style="font-size:9px; color:#636375; margin-top:2px">ventana 21 días</div>
+            </div>
+        </div>` : `<div style="font-size:11px; color:#636375; margin-top:10px; font-style:italic">Z-scores disponibles después de 5 sesiones históricas.</div>`;
+
+    return `
+    <div class="prescription-box" style="border-left: 3px solid #BF5AF2; margin-bottom:12px">
+        <div class="prescription-title" style="color:#BF5AF2">🔬 ANÁLISIS EX-GAUSSIANO — DISTRIBUCIÓN ATENCIONAL</div>
+        <div class="prescription-text">
+
+            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:4px">
+                <div style="background:rgba(255,255,255,0.03); border-radius:8px; padding:10px; text-align:center">
+                    <div style="font-size:9px; color:#636375; font-weight:700; margin-bottom:4px">μ (VELOCIDAD MOTORA)</div>
+                    <div style="font-size:18px; font-weight:900; color:#00E5FF">${mu}<span style="font-size:10px">ms</span></div>
+                </div>
+                <div style="background:rgba(255,255,255,0.03); border-radius:8px; padding:10px; text-align:center">
+                    <div style="font-size:9px; color:#636375; font-weight:700; margin-bottom:4px">σ (CONSISTENCIA)</div>
+                    <div style="font-size:18px; font-weight:900; color:#FF9F0A">${sigma}<span style="font-size:10px">ms</span></div>
+                </div>
+                <div style="background:rgba(255,255,255,0.03); border-radius:8px; padding:10px; text-align:center">
+                    <div style="font-size:9px; color:#636375; font-weight:700; margin-bottom:4px">τ (FATIGA CENTRAL / COLA)</div>
+                    <div style="font-size:18px; font-weight:900; color:${tauColor}">${tau}<span style="font-size:10px">ms</span></div>
+                </div>
+            </div>
+            <div style="font-size:10px; color:#636375; margin-bottom:8px; font-style:italic">
+                Ajuste Ex-Gaussiano MLE sobre ${n} trials · Basner &amp; Dinges (2011)
+            </div>
+
+            <div style="margin-top:10px; margin-bottom:12px; font-size:11px; line-height:1.4; color:var(--text-2); background:rgba(255,255,255,0.02); padding:10px; border-radius:8px">
+                <strong style="color:var(--text-1)">Traducción de Variables:</strong><br>
+                • <strong>μ (Velocidad Motora):</strong> Tiempo de reacción puro del atleta en óptimo estado (velocidad base de procesamiento).<br>
+                • <strong>σ (Consistencia):</strong> Varianza en torno a la velocidad base. A menor valor, mayor estabilidad mental y enfoque.<br>
+                • <strong>τ (Fatiga Central):</strong> Frecuencia de micro-lapsos atencionales y fatiga acumulada en la corteza (la "cola" del tiempo de reacción). Es el indicador principal de riesgo y sobreentrenamiento del SNC.
+            </div>
+
+            ${zScoreRow}
+
+            ${aa.exg_alert ? `
+            <div style="margin-top:12px; padding:10px; border-radius:8px; background:${statusColor}18; border:1px solid ${statusColor}44; font-size:12px; color:${statusColor}; line-height:1.5">
+                ${aa.exg_alert}
+            </div>` : ''}
+        </div>
+    </div>`;
+}
+
+
 function closeSncModal() { document.getElementById('snc-modal').classList.add('hidden'); }
 function closeAthleteProfile() { document.getElementById('athlete-profile-modal').classList.add('hidden'); }
 
@@ -882,10 +997,31 @@ function loadAthleteReport(athleteId) {
     const stressVals = records.map(p => p.wellness?.stressLevel ?? p.stress ?? 0);
     const qualityVals = records.map(p => p.wellness?.sleepQuality ?? p.sleep_quality ?? 0);
 
+    const muVals = records.map(p => p.advanced_analysis?.mu_ms ?? null);
+    const sigmaVals = records.map(p => p.advanced_analysis?.sigma_ms ?? null);
+    const tauVals = records.map(p => p.advanced_analysis?.tau_ms ?? null);
+
     container.innerHTML = `
         <div class="report-grid">
             ${renderReportCard('EVOLUCIÓN IRI (SNC)', 'chart-iri')}
             ${renderReportCard('LATENCIA SNC (MS)', 'chart-latency')}
+            
+            ${renderReportCard(
+                'EX-GAUSSIAN: μ - VELOCIDAD MOTORA BASE', 
+                'chart-mu', 
+                '<strong>μ (Velocidad Motora):</strong> Tiempo de reacción puro del atleta en óptimo estado (velocidad base de procesamiento). Menores valores representan una mayor frescura motora.'
+            )}
+            ${renderReportCard(
+                'EX-GAUSSIAN: σ - VARIABILIDAD COGNITIVA', 
+                'chart-sigma', 
+                '<strong>σ (Consistencia):</strong> Desviación o variabilidad en torno al tiempo base. Mide la estabilidad de foco; valores bajos reflejan alta consistencia y enfoque mental.'
+            )}
+            ${renderReportCard(
+                'EX-GAUSSIAN: τ - FATIGA CENTRAL DEL SNC', 
+                'chart-tau', 
+                '<strong>τ (Fatiga Central):</strong> Indica la frecuencia de micro-lapsos atencionales y fatiga acumulada en la corteza. El aumento de τ es el indicador clave de rendimiento del SNC.'
+            )}
+
             ${renderReportCard('CORRELACIÓN: IRI VS DESACELERACIONES', 'chart-corr')}
             ${renderReportCard('HORAS SUEÑO', 'chart-sleep')}
             ${renderReportCard('CALIDAD SUEÑO (1-5)', 'chart-quality')}
@@ -895,6 +1031,11 @@ function loadAthleteReport(athleteId) {
 
     createMiniChart('chart-iri', labels, iriVals, '#BF5AF2', 0, 100);
     createMiniChart('chart-latency', labels, latencyVals, '#00E5FF', 200, 450);
+    
+    createMiniChart('chart-mu', labels, muVals, '#00E5FF', 100, 350);
+    createMiniChart('chart-sigma', labels, sigmaVals, '#FF9F0A', 0, 80);
+    createMiniChart('chart-tau', labels, tauVals, '#BF5AF2', 0, 150);
+
     createMiniChart('chart-sleep', labels, sleepVals, '#32D74B', 4, 12);
     createMiniChart('chart-quality', labels, qualityVals, '#FF9F0A', 1, 5);
     createMiniChart('chart-stress', labels, stressVals, '#FFD60A', 1, 5);
@@ -936,8 +1077,13 @@ function createMiniChart(id, labels, data, color, min, max) {
     }));
 }
 
-function renderReportCard(title, canvasId) {
-    return `<div class="report-card"><div class="report-card-title">${title}</div><div class="mini-chart-container"><canvas id="${canvasId}"></canvas></div></div>`;
+function renderReportCard(title, canvasId, desc = '') {
+    return `
+    <div class="report-card">
+        <div class="report-card-title">${title}</div>
+        ${desc ? `<div style="font-size: 11px; color: var(--text-2); margin-top: -8px; margin-bottom: 12px; line-height: 1.4">${desc}</div>` : ''}
+        <div class="mini-chart-container"><canvas id="${canvasId}"></canvas></div>
+    </div>`;
 }
 
 // ─── GPS Upload Logic ───
@@ -1067,4 +1213,21 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.style.setProperty('overflow-y', 'auto', 'important');
     const dateEl = document.getElementById('live-date');
     if (dateEl) dateEl.textContent = new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+});
+
+// Cerrar modales al hacer clic fuera del modal-box (en el overlay)
+window.addEventListener('click', (e) => {
+    const athleteModal = document.getElementById('athlete-modal');
+    const profileModal = document.getElementById('athlete-profile-modal');
+    const sncModal = document.getElementById('snc-modal');
+    
+    if (e.target === athleteModal) {
+        athleteModal.classList.add('hidden');
+    }
+    if (e.target === profileModal) {
+        profileModal.classList.add('hidden');
+    }
+    if (e.target === sncModal) {
+        sncModal.classList.add('hidden');
+    }
 });

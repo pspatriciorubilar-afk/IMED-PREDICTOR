@@ -1,0 +1,20 @@
+default_platform(:android)
+
+platform :android do
+  desc "Despliegue automático de IMED SPORT a Google Play Console (Interno)"
+  lane :deploy_internal do
+    # 1. Limpieza y compilación Flutter
+    sh("flutter clean")
+    sh("flutter build appbundle --release")
+    
+    # 2. Subida automática
+    upload_to_play_store(
+      track: 'internal',
+      aab: '../build/app/outputs/bundle/release/app-release.aab',
+      package_name: 'com.imedsport.app',
+      skip_manifest_check: true
+    )
+    
+    notification(message: "IMED SPORT ANDROID: Despliegue Élite Finalizado con éxito.")
+  end
+end

@@ -1,0 +1,65 @@
+name: imed_sport
+description: "Plataforma de Alto Rendimiento IMED PREDICTOR (PVT + Circadian)"
+publish_to: 'none'
+version: 4.1.1+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Estado
+  flutter_riverpod: ^2.5.1
+  # Base de datos local offline-first
+  isar: ^3.1.0+1
+  isar_flutter_libs: ^3.1.0+1
+  # Directorio de archivos
+  path_provider: ^2.1.2
+  # Notificaciones circadianas
+  flutter_local_notifications: ^17.2.4
+  # Internacionalización y zona horaria
+  intl: ^0.19.0
+  timezone: ^0.9.4
+  flutter_timezone: ^1.0.8
+  # Red
+  http: ^1.2.1
+  # Persistencia y Offline-First
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  # Sensores y Biometría
+  camera: ^0.11.0+2
+  vibration: ^1.8.4
+  permission_handler: ^11.3.1
+  sensors_plus: ^5.0.1
+  # Background Sync
+  workmanager: ^0.5.2
+  # Criptografía (JWT Headers)
+  crypto: ^3.0.3
+  # Persistencia simple (Modo Competencia)
+  shared_preferences: ^2.2.3
+  # Gráficas de tendencias (Trends)
+  fl_chart: ^0.65.0
+
+  # Firebase
+  firebase_core: ^2.31.0
+  cloud_firestore: ^4.17.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  # Generadores de código para Isar
+  isar_generator: ^3.1.0+1
+  build_runner: ^2.4.8
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/logo.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/logo.png

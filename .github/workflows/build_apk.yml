@@ -1,0 +1,60 @@
+name: Build & Release APK
+
+on:
+  workflow_dispatch: # Disparo manual
+  push:
+    branches:
+      - main       # ← Disparo automático en cada push a main
+    tags:
+      - 'v*'       # ← También en tags de versión
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: 🚀 Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.6'
+          channel: 'stable'
+
+      - name: 📦 Install dependencies
+        run: flutter pub get
+
+      - name: 🏗️ Generate Isar Schemas
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: ⚙️ Generate local.properties
+        run: |
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          echo "flutter.versionCode=1" >> android/local.properties
+          echo "flutter.versionName=1.0.0" >> android/local.properties
+
+      - name: 🛠️ Build APK
+        run: flutter build apk --release --split-per-abi
+
+      - name: 📤 Upload APK como artefacto (push a main)
+        uses: actions/upload-artifact@v4
+        if: false # DESACTIVADO: github.ref == 'refs/heads/main' por cuota de almacenamiento llena
+        with:
+          name: imed-sport-apk-${{ github.sha }}
+          path: build/app/outputs/flutter-apk/*.apk
+          retention-days: 1
+
+      - name: 📤 Upload APK to Release (solo en tags)
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: build/app/outputs/flutter-apk/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

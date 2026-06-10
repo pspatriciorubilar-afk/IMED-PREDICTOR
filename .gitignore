@@ -1,22 +1,41 @@
-# Firebase
-.firebase/
-firebase-debug.log
-firebase-debug.*.log
-.firebaserc
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-.env
+# Android
+.gradle/
+local.properties
+ant-properties.xml
+proguard-rules.pro
+*.keystore
+*.jks
+*.apk
+*.aab
 
-# JavaScript / Node
+# Node.js
 node_modules/
-.DS_Store
+npm-debug.log
+.env
+.env.production
 dist/
 
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.swp
+*.code-workspace
+
 # OS
+.DS_Store
 Thumbs.db
-ehthumbs.db
-Desktop.ini
+
+# Firebase local / credentials
+.firebase/
+functions/serviceAccount.json
+

@@ -192,26 +192,38 @@ class DashboardScreen extends StatelessWidget {
         if (records.isEmpty) return const SizedBox();
 
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildChartCard(
-              "EVOLUCIÓN IRI (SNC)",
-              records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.iri)).toList(),
-              AppTheme.accentGreen,
-              0, 100,
-            ),
-            const SizedBox(height: 24),
-            _buildChartCard(
-              "LATENCIA SNC (MS)",
-              records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.latency)).toList(),
-              AppTheme.accentBlue,
-              150, 550,
-            ),
-            const SizedBox(height: 24),
-            _buildChartCard(
-              "DESACELERACIONES (Z5)",
-              records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.decelZ5)).toList(),
-              AppTheme.accentRed,
-              0, (records.map((e) => e.decelZ5).reduce((a, b) => a > b ? a : b) + 5).clamp(20, 100),
+            const Text("ANÁLISIS NEURO-MECÁNICO", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+            const SizedBox(height: 16),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 16,
+              crossAxisSpacing: 16,
+              childAspectRatio: 1.6, // Ajuste para que sean más compactos
+              children: [
+                _buildChartCard(
+                  "EVOLUCIÓN IRI (SNC)",
+                  records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.iri)).toList(),
+                  AppTheme.accentGreen,
+                  0, 100,
+                ),
+                _buildChartCard(
+                  "LATENCIA SNC (MS)",
+                  records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.latency)).toList(),
+                  AppTheme.accentBlue,
+                  150, 550,
+                ),
+                _buildChartCard(
+                  "DESACELERACIONES (Z5)",
+                  records.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value.decelZ5)).toList(),
+                  AppTheme.accentRed,
+                  0, (records.map((e) => e.decelZ5).reduce((a, b) => a > b ? a : b) + 5).clamp(20, 100),
+                ),
+                // Podríamos añadir un cuarto gráfico aquí si existiera en el modelo
+              ],
             ),
           ],
         );
@@ -221,15 +233,14 @@ class DashboardScreen extends StatelessWidget {
 
   Widget _buildChartCard(String title, List<FlSpot> spots, Color color, double minY, double maxY) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(16), // Reducido de 24
       decoration: AppTheme.glassDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-          const SizedBox(height: 32),
-          SizedBox(
-            height: 200,
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, letterSpacing: 1.1)),
+          const SizedBox(height: 16), // Reducido de 32
+          Expanded(
             child: LineChart(
               LineChartData(
                 minY: minY,
@@ -247,8 +258,8 @@ class DashboardScreen extends StatelessWidget {
                   leftTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
-                      reservedSize: 40,
-                      getTitlesWidget: (value, meta) => Text(value.toInt().toString(), style: TextStyle(color: AppTheme.textSecondary, fontSize: 10)),
+                      reservedSize: 30, // Reducido
+                      getTitlesWidget: (value, meta) => Text(value.toInt().toString(), style: TextStyle(color: AppTheme.textSecondary, fontSize: 9)),
                     ),
                   ),
                 ),
@@ -258,13 +269,13 @@ class DashboardScreen extends StatelessWidget {
                     spots: spots,
                     isCurved: true,
                     color: color,
-                    barWidth: 3,
+                    barWidth: 2.5, // Reducido de 3
                     dotData: FlDotData(
                       show: true,
                       getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
-                        radius: 4,
+                        radius: 3, // Reducido de 4
                         color: color,
-                        strokeWidth: 2,
+                        strokeWidth: 1.5,
                         strokeColor: Colors.white,
                       ),
                     ),

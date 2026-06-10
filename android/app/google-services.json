@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "300860465249",
+    "project_id": "app-imed-sport",
+    "storage_bucket": "app-imed-sport.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:300860465249:android:d356e0e402deedd242ca20",
+        "android_client_info": {
+          "package_name": "com.pato.imedsport"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBu0yAOhqYlsXGObeiYTT_TchzJ3lhv2No"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

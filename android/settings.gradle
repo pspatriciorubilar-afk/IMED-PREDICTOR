@@ -1,0 +1,22 @@
+include ':app'
+
+// Lee local.properties para obtener la ruta del Flutter SDK
+def localPropertiesFile = new File(rootProject.projectDir, "local.properties")
+def properties = new Properties()
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader -> properties.load(reader) }
+}
+
+// Prioridad 1: local.properties | Prioridad 2: Variable de entorno CI (FLUTTER_ROOT)
+def flutterSdkPath = properties.getProperty("flutter.sdk") ?: System.env.FLUTTER_ROOT
+
+if (flutterSdkPath == null) {
+    throw new RuntimeException(
+        "Flutter SDK no encontrado. Configura flutter.sdk en android/local.properties " +
+        "o define la variable de entorno FLUTTER_ROOT."
+    )
+}
+
+// CLAVE: Este script lee .flutter-plugins (generado por flutter pub get)
+// e incluye automáticamente todos los plugins de Flutter como proyectos Gradle
+apply from: "$flutterSdkPath/packages/flutter_tools/gradle/app_plugin_loader.gradle"

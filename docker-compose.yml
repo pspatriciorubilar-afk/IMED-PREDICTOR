@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  # BACKEND: API IMED SPORT (Node.js + Prisma)
+  backend:
+    build: ./server
+    container_name: imed-api
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://imed-redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - PORT=3000
+    depends_on:
+      - redis
+    networks:
+      - imed-net
+    volumes:
+      - ./dashboard:/app/dashboard
+
+  # REDIS: COLA BULLMQ (AISLADO DEL EXTERIOR)
+  redis:
+    image: redis:7-alpine
+    container_name: imed-redis
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    networks:
+      - imed-net
+    # No exponemos puertos al exterior, solo a la red interna imed-net
+
+networks:
+  imed-net:
+    driver: bridge
+
+volumes:
+  redis-data:

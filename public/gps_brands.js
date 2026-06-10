@@ -83,7 +83,7 @@ const GPS_BRANDS_DB = {
     model: "Oliver Performance GPS",
     logo: "⚽",
     color: "#2ECC71",
-    description: "Líder en Chile y Latinoamérica. Integración directa con IMED Sport.",
+    description: "Líder en Chile y Latinoamérica. Integración directa con IMED PREDICTOR.",
     region: "Latinoamérica / Chile",
     format: "CSV vía plataforma Oliver",
     metrics: {
