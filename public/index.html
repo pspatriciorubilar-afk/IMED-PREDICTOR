@@ -141,10 +141,13 @@
               <div class="panel-label">PANEL DE ALERTAS</div>
               <h2 class="panel-title">Semáforo de Riesgo</h2>
             </div>
-            <div class="legend">
-              <span class="dot red"></span><span>Crítico</span>
-              <span class="dot yellow"></span><span>Advert.</span>
-              <span class="dot green"></span><span>Óptimo</span>
+            <div class="legend" style="display:flex; align-items:center; gap: 15px;">
+              <button id="btn-triage-toggle" class="btn-icon" style="border: 1px solid var(--border); color: var(--text-2); padding: 4px 12px; border-radius: 20px; font-size: 0.70rem; font-weight: 800; background: transparent; transition: all 0.2s; white-space:nowrap; cursor:pointer; letter-spacing: 0.5px;" onclick="toggleTriageMode()">TRIAJE: OFF</button>
+              <div style="display:flex; gap:8px;">
+                <span class="dot red"></span><span>Crítico</span>
+                <span class="dot yellow"></span><span>Advert.</span>
+                <span class="dot green"></span><span>Óptimo</span>
+              </div>
             </div>
           </div>
           <div id="athlete-list" class="athlete-list">

@@ -27,20 +27,20 @@ class SNCEngine {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // CÁLCULO COMPLETO CON MODIFICADOR CONTEXTUAL (Wellness Survey)
+  // ───────────────────────────────────────────────────────────────────────────
+  // CÁLCULO COMPLETO CON WELLNESS (ALGORITMO FIEL 50/50)
   // ───────────────────────────────────────────────────────────────────────────
 
-  /// Calcula el IRI incorporando el cuestionario de bienestar diario como
-  /// modificador contextual. Este es el método preferido cuando el flujo
-  /// completo Wellness → PVT está disponible.
-  ///
-  /// El modificador puede reducir el IRI hasta un 20% (fatiga/estrés extremos)
-  /// o aumentarlo hasta un 8% (sueño óptimo con recuperación completa).
+  /// Calcula el IRI incorporando el cuestionario de bienestar diario.
+  /// Se ha unificado con la plataforma Web (Algoritmo Fiel), dando 50% de peso
+  /// al rendimiento cognitivo (PVT) y 50% al estado subjetivo (Wellness).
   static int calculateIRIWithContext(double _, List<int> pvtLatencies, WellnessSurvey wellness) {
-    final base = _computeBase(pvtLatencies);
-    final modifier = _computeContextModifier(wellness);
-    final adjusted = (base * modifier).clamp(0.0, 100.0);
-    return adjusted.round();
+    final pvtScore = _computeBase(pvtLatencies);
+    final wellnessScore = _computeWellnessScore(wellness);
+    
+    // Algoritmo Fiel: Promedio exacto entre PVT y Wellness (50/50)
+    final iriFinal = (pvtScore + wellnessScore) / 2.0;
+    return iriFinal.clamp(0.0, 100.0).round();
   }
 
   /// Calcula el IRI completo directamente desde un [BiometricPayload].
@@ -68,39 +68,15 @@ class SNCEngine {
     return pvtScore;
   }
 
-  /// Calcula el modificador contextual del cuestionario de bienestar.
-  /// Retorna un factor entre 0.80 y 1.08 que ajusta el IRI base.
-  ///
-  /// Pesos clínicos asignados según impacto en rendimiento deportivo:
-  ///   Sueño (horas)    35% — Factor más determinante en recuperación SNC
-  ///   Calidad sueño    25% — Calidad subjetiva percibida
-  ///   Estrés percibido 20% — Eje HPA: cortisol / fatiga cognitiva
-  ///   Fatiga general   20% — Estado de preparación neuromuscular
-  static double _computeContextModifier(WellnessSurvey w) {
-    // Sueño — horas (óptimo: 8h, mínimo deportivo: 5h)
-    // Por debajo de 5h: penalización severa; 8-9h: bonus leve
-    final sleepHoursFactor = _normalizeSleepHours(w.sleepHours);
-
-    // Calidad de sueño (escala 1-5, 5 = perfecta)
-    final sleepQualityFactor = _normalizeScale5(w.sleepQuality);
-
-    // Estrés (escala 1-5, 1 = sin estrés = mejor)
-    final stressFactor = _normalizeScale5Inverse(w.stressLevel);
-
-    // Fatiga general percibida (1-5, 1 = sin fatiga = mejor)
-    final fatigueFactor = _normalizeScale5Inverse(w.fatigueLevel);
-
-    // Promedio ponderado de factores contextuales (resultado: 0.0 → 1.0)
-    final contextScore =
-        (sleepHoursFactor  * 0.35) +
-        (sleepQualityFactor * 0.25) +
-        (stressFactor       * 0.20) +
-        (fatigueFactor      * 0.20);
-
-    // Convertir a modificador multiplicativo: rango 0.80 → 1.08
-    // contextScore 0.0 → factor 0.80 (penalización -20%)
-    // contextScore 1.0 → factor 1.08 (bonus +8%)
-    return 0.80 + (contextScore * 0.28);
+  /// Calcula el puntaje de Wellness (0-100) compatible con la Plataforma Web.
+  /// Distribuye el 100% en 4 factores (25% cada uno).
+  static double _computeWellnessScore(WellnessSurvey w) {
+    final hScore = (min(8.0, w.sleepHours) / 8.0) * 25.0;
+    final qScore = (w.sleepQuality / 5.0) * 25.0;
+    final sScore = ((6.0 - w.stressLevel) / 5.0) * 25.0;
+    final fScore = ((6.0 - w.fatigueLevel) / 5.0) * 25.0;
+    
+    return hScore + qScore + sScore + fScore;
   }
 
   /// Normaliza horas de sueño a factor entre 0.0 y 1.0.

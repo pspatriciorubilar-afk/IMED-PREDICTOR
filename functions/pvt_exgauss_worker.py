@@ -70,7 +70,7 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
     Ajusta la distribución Ex-Gaussiana sobre el vector de tiempos de reacción.
 
     La distribución Ex-Gaussiana = Normal(μ, σ) ⊕ Exponencial(τ)
-    Parámetros estimados por Maximum Likelihood Estimation (MLE).
+    Parámetros estimados por Maximum Likelihood Estimation acotada y penalizada.
 
     Args:
         trials: Lista de tiempos de reacción en ms (n ≥ 20 recomendado, ≥ 30 óptimo)
@@ -79,30 +79,64 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
         dict con μ, σ, τ y métricas de calidad del ajuste, o None si falla.
     """
     trials_arr = np.array([t for t in trials if 120 <= t <= 1000], dtype=float)
+    n = len(trials_arr)
 
-    if len(trials_arr) < 20:
-        log.warning(f"Insuficientes trials válidos: {len(trials_arr)} (mínimo 20)")
+    if n < 20:
+        log.warning(f"Insuficientes trials válidos: {n} (mínimo 20)")
         return None
 
     try:
-        # scipy.stats.exponnorm parametriza como:
-        # K = τ/σ  (shape),  loc = μ,  scale = σ
-        # MLE fit directo
-        K, loc, scale = exponnorm.fit(trials_arr)
+        # Inicialización por Método de Momentos para estabilidad
+        mean_val = np.mean(trials_arr)
+        var_val = np.var(trials_arr, ddof=1)
+        m3 = np.mean((trials_arr - mean_val)**3)
+        
+        tau_init = (m3 / 2.0)**(1/3) if m3 > 0 else 0.2 * np.sqrt(var_val)
+        tau_init = min(tau_init, np.sqrt(var_val) * 0.9)
+        sigma_init = np.sqrt(max(1.0, var_val - tau_init**2))
+        mu_init = mean_val - tau_init
+        
+        mu_init = np.clip(mu_init, 100.0, 400.0)
+        sigma_init = np.clip(sigma_init, 5.0, 200.0)
+        tau_init = np.clip(tau_init, 10.0, 300.0)
 
-        mu_ms    = float(loc)          # Velocidad motora base (ms)
-        sigma_ms = float(scale)        # Consistencia interna (ms)
-        tau_ms   = float(K * scale)    # Cola derecha — lapsos atencionales (ms)
+        # Función objetivo acotada y regularizada
+        def neg_log_likelihood(params):
+            mu, sigma, tau = params
+            K = tau / sigma
+            log_pdf = exponnorm.logpdf(trials_arr, K, loc=mu, scale=sigma)
+            nll = -np.sum(log_pdf)
+            if np.isnan(nll) or np.isinf(nll):
+                return 1e10
+            
+            # Penalización L2 hacia medias poblacionales teóricas para evitar dispersión en N=30
+            return nll + 0.001 * (mu - 220)**2 + 0.01 * (sigma - 45)**2 + 0.005 * (tau - 65)**2
 
-        # Media y varianza de la distribución ex-gaussiana ajustada
+        bounds = [(100.0, 450.0), (10.0, 250.0), (10.0, 350.0)]
+        
+        res = minimize(
+            neg_log_likelihood, 
+            x0=[mu_init, sigma_init, tau_init], 
+            method='L-BFGS-B', 
+            bounds=bounds,
+            options={'ftol': 1e-6}
+        )
+
+        if not res.success:
+            log.warning("Optimización acotada falló. Usando fallback estándar.")
+            K, loc, scale = exponnorm.fit(trials_arr)
+            mu, sigma, tau = loc, scale, K * scale
+        else:
+            mu, sigma, tau = res.x
+
+        mu_ms, sigma_ms, tau_ms = float(mu), float(sigma), float(tau)
+
         exg_mean = mu_ms + tau_ms
         exg_var  = sigma_ms**2 + tau_ms**2
+        
+        log_lik = float(np.sum(exponnorm.logpdf(trials_arr, tau_ms/sigma_ms, loc=mu_ms, scale=sigma_ms)))
 
-        # Log-verosimilitud (calidad del ajuste)
-        log_lik = float(np.sum(exponnorm.logpdf(trials_arr, K, loc=loc, scale=scale)))
-
-        # Validación de rangos clínicos esperados
-        if not (100 <= mu_ms <= 400) or sigma_ms <= 0 or tau_ms <= 0:
+        if not (100 <= mu_ms <= 450) or sigma_ms <= 0 or tau_ms <= 0:
             log.warning(f"Parámetros Ex-Gaussianos fuera de rango clínico: μ={mu_ms:.1f}, σ={sigma_ms:.1f}, τ={tau_ms:.1f}")
             return None
 
@@ -111,10 +145,10 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
             "sigma_ms":    round(sigma_ms, 2),
             "tau_ms":      round(tau_ms, 2),
             "exg_mean_ms": round(exg_mean, 2),
-            "n_trials":    int(len(trials_arr)),
+            "n_trials":    int(n),
             "log_lik":     round(log_lik, 3),
         }
-        log.info(f"  Ex-Gauss ajustado: μ={mu_ms:.1f}ms  σ={sigma_ms:.1f}ms  τ={tau_ms:.1f}ms (n={len(trials_arr)})")
+        log.info(f"  Ex-Gauss ajustado: μ={mu_ms:.1f}ms  σ={sigma_ms:.1f}ms  τ={tau_ms:.1f}ms (n={n})")
         return result
 
     except Exception as e:
@@ -191,24 +225,30 @@ def compute_zscores(db, athlete_id: str, today_str: str,
         }
 
         # ── Z-score de τ ──
-        if len(tau_history) >= 5:
+        if len(tau_history) >= 8:
             tau_mean = float(np.mean(tau_history))
             tau_sd   = float(np.std(tau_history, ddof=1))
-            if tau_sd > 0:
+            # Floor standard deviation para prevenir varianza minúscula
+            tau_sd = max(tau_sd, 5.0) 
+            
+            if tau_today is not None:
                 result["tau_zscore"]        = round((tau_today - tau_mean) / tau_sd, 3)
-                result["tau_baseline_mean"] = round(tau_mean, 2)
-                result["tau_baseline_sd"]   = round(tau_sd, 2)
-                log.info(f"  τ Z-score: {result['tau_zscore']:.2f}  (base μ={tau_mean:.1f}ms SD={tau_sd:.1f}ms, n={len(tau_history)})")
+            result["tau_baseline_mean"] = round(tau_mean, 2)
+            result["tau_baseline_sd"]   = round(tau_sd, 2)
+            
+            log.info(f"  τ Z-score: {result.get('tau_zscore')}  (base μ={tau_mean:.1f}ms SD={tau_sd:.1f}ms, n={len(tau_history)})")
         else:
-            log.info(f"  Insuficiente historial τ para Z-score ({len(tau_history)}/5 min)")
+            result["tau_baseline_status"] = "INSUFFICIENT_DENSITY"
+            log.info(f"  Insuficiente historial τ para Z-score ({len(tau_history)}/8 min)")
 
         # ── Z-score de Wellness ──
-        if wellness_today is not None and len(wellness_history) >= 5:
+        if wellness_today is not None and len(wellness_history) >= 8:
             w_mean = float(np.mean(wellness_history))
             w_sd   = float(np.std(wellness_history, ddof=1))
-            if w_sd > 0:
-                result["wellness_zscore"] = round((wellness_today - w_mean) / w_sd, 3)
-                log.info(f"  Wellness Z-score: {result['wellness_zscore']:.2f}  (base μ={w_mean:.1f} SD={w_sd:.1f}, n={len(wellness_history)})")
+            w_sd = max(w_sd, 2.0) # Floor variance para wellness
+            
+            result["wellness_zscore"] = round((wellness_today - w_mean) / w_sd, 3)
+            log.info(f"  Wellness Z-score: {result['wellness_zscore']:.2f}  (base μ={w_mean:.1f} SD={w_sd:.1f}, n={len(wellness_history)})")
 
         return result
 
@@ -227,12 +267,23 @@ def classify_exgauss_status(tau_zscore: float | None, wellness_zscore: float | N
     Semáforo de estado basado en distribución Ex-Gaussiana.
 
     Reglas (orden de prioridad):
-    1. Si tau_zscore > 1.5 AND wellness_zscore < -1.2 → ROJO (Fatiga Central Confirmada)
-    2. Si tau_zscore > 2.0 (solo) → ROJO (Cola atencional crítica)
-    3. Si tau_zscore > 1.0 OR wellness_zscore < -0.8 → AMARILLO
-    4. Sin Z-scores disponibles → usar τ absoluto como fallback clínico
-    5. Else → VERDE
+    1. Si wellness_zscore < -2.0 → ROJO (Estrés/Fatiga subjetiva crítica)
+    2. Si tau_zscore > 1.5 AND wellness_zscore < -1.2 → ROJO (Fatiga Central Confirmada)
+    3. Si tau_zscore > 2.0 (solo) → ROJO (Cola atencional crítica)
+    4. Si tau_zscore > 1.0 OR wellness_zscore < -0.8 → AMARILLO
+    5. Sin Z-scores disponibles → usar τ absoluto como fallback clínico
+    6. Else → VERDE
     """
+    # 1. Regla de Seguridad por Wellness Crítico (Override)
+    if wellness_zscore is not None and wellness_zscore < -2.0:
+        return {
+            "readiness_status": "RED",
+            "exg_alert": (
+                f"🔴 ESTRÉS/FATIGA CRÍTICA SUBJETIVA: El bienestar se encuentra extremadamente degradado "
+                f"({abs(wellness_zscore):.1f}σ bajo la línea base). Alerta preventiva de sobreentrenamiento."
+            )
+        }
+
     # Fallback por τ absoluto (sin línea base histórica aún)
     if tau_zscore is None:
         if tau_ms is None:
@@ -409,6 +460,7 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
         "tau_baseline_n":       zscores.get("tau_baseline_n"),
         "tau_baseline_mean_ms": zscores.get("tau_baseline_mean"),
         "tau_baseline_sd_ms":   zscores.get("tau_baseline_sd"),
+        "tau_baseline_status":  zscores.get("tau_baseline_status"),
 
         # Resultado del semáforo
         "readiness_status": status["readiness_status"],

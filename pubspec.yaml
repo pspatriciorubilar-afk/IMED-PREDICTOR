@@ -1,7 +1,7 @@
 name: imed_sport
 description: "Plataforma de Alto Rendimiento IMED PREDICTOR (PVT + Circadian)"
 publish_to: 'none'
-version: 4.1.1+1
+version: 4.1.2+2
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

@@ -28,6 +28,7 @@ let selectedGpsBrand = 'auto';
 let selectedFile = null;
 let gActiveProfileId = null;
 let gSncTeamFilter = "";
+let gTriageMode = false;
 
 // ─── Initialization ───
 const firebaseConfig = {
@@ -195,6 +196,25 @@ function getUnifiedStatus(p) {
 
 function calcSNC(p) { return getUnifiedStatus(p); }
 function calcIVN(p) { return getUnifiedStatus(p); }
+// ─── Triage Mode ───
+function toggleTriageMode() {
+    gTriageMode = !gTriageMode;
+    const btn = document.getElementById('btn-triage-toggle');
+    if (btn) {
+        if (gTriageMode) {
+            btn.innerHTML = 'TRIAJE: ON';
+            btn.style.background = 'rgba(255,77,77,0.15)';
+            btn.style.color = '#FF4D4D';
+            btn.style.borderColor = 'rgba(255,77,77,0.4)';
+        } else {
+            btn.innerHTML = 'TRIAJE: OFF';
+            btn.style.background = 'transparent';
+            btn.style.color = 'var(--text-2)';
+            btn.style.borderColor = 'var(--border)';
+        }
+    }
+    renderDashboard();
+}
 
 // ─── Rendering ───
 function renderDashboard() {
@@ -213,8 +233,17 @@ function renderDashboard() {
     
     const latestList = Object.values(latest);
     let counts = { RED: 0, YELLOW: 0, GREEN: 0 };
+
+    // Triage Filter
+    let displayList = latestList;
+    if (gTriageMode) {
+        displayList = latestList.filter(p => {
+            const level = calcIVN(p).level;
+            return level === 'RED' || level === 'YELLOW';
+        });
+    }
     
-    container.innerHTML = latestList.length ? latestList.map(p => {
+    container.innerHTML = displayList.length ? displayList.map(p => {
         const ivn = calcIVN(p);
         if (p.date === today) counts[ivn.level]++;
         const initials = (p.athleteName || 'AT').split(' ').map(w => w[0]).join('').slice(0, 2);
@@ -224,7 +253,7 @@ function renderDashboard() {
                 <div class="athlete-avatar">${initials}<div class="risk-ring ${ivn.ringClass}"></div></div>
                 <div class="athlete-info">
                     <div class="athlete-name">${p.athleteName || p.athleteId}</div>
-                    <div class="athlete-pos">${p.position || '—'}</div>
+                    <div class="athlete-pos" style="color: var(--text-2); font-size: 0.75rem;">📅 ${p.date ? p.date.split('-').reverse().join('-') : '—'}</div>
                 </div>
                 <div class="athlete-metrics">
                     <div class="metric-mini"><div class="val">${Math.round(p.iri)}</div><div class="lbl">IRI</div></div>
@@ -505,7 +534,10 @@ function renderAthletesTable(f = '') {
                                     <td><span class="risk-badge ${status.badgeClass}">${status.label}</span></td>
                                     <td>${lastEval ? lastEval.date : '—'}</td>
                                     <td>${lastEval ? `IRI: ${Math.round(status.iri)}` : 'Pendiente'}</td>
-                                    <td><button class="btn-mini">Ficha Completa</button></td>
+                                    <td style="display:flex; gap:5px; align-items:center;">
+                                        <button class="btn-mini">Ficha Completa</button>
+                                        <button class="btn-mini" style="background:rgba(50,215,75,0.1); color:#32D74B; border-color:rgba(50,215,75,0.2)" onclick="event.stopPropagation(); editAthleteNotes('${a.id}')">Editar Ficha</button>
+                                    </td>
                                     <td><button class="btn-delete" onclick="event.stopPropagation(); deleteAthlete('${a.id}')">🗑</button></td>
                                 </tr>
                             `;
@@ -784,6 +816,22 @@ async function promptTeamChange(id, currentTeam) {
         }
     }
 }
+
+async function editAthleteNotes(id) {
+    const a = gAthletesCache.find(x => x.id === id);
+    if (!a) return;
+    const newNotes = prompt("Anotaciones y Seguimiento Técnico (Máximo 500 caracteres recomendados):", a.notes || "");
+    if (newNotes !== null) {
+        try {
+            await db.collection('athletes').doc(id).update({ notes: newNotes });
+            // El listener onSnapshot recargará la vista automáticamente
+        } catch (e) {
+            console.error(e);
+            alert("Error al guardar las notas.");
+        }
+    }
+}
+
 
 function openSncModal(id) {
     const a = gAthletesCache.find(x => x.id === id);

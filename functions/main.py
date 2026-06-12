@@ -1,4 +1,4 @@
-from firebase_functions import https_fn, options, firestore_fn
+from firebase_functions import https_fn, options, firestore_fn, scheduler_fn
 from firebase_admin import initialize_app, firestore
 import datetime
 
@@ -332,6 +332,39 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         # Guardar en Daily_Performance (merge=True para no borrar datos GPS si ya existen)
         db.collection("Daily_Performance").document(doc_id).set(payload, merge=True)
         print(f"[AUTO-SYNC] Sincronización exitosa para {athlete_name} ({date_str})")
+
+        # ── DISPARADOR EX-GAUSSIANO EN TIEMPO REAL ──
+        try:
+            import pvt_exgauss_worker
+            
+            pvt = m_data.get("pvt", {})
+            metrics = pvt.get("metrics", {})
+            trials = (
+                metrics.get("trials") or
+                metrics.get("rawReactionTimes") or
+                pvt.get("trials") or
+                pvt.get("logs") or
+                m_data.get("trials") or
+                []
+            )
+            
+            if trials:
+                measurement_payload = {
+                    "athlete_id": athlete_id,
+                    "athlete_name": athlete_name,
+                    "date": date_str,
+                    "trials": [float(t) for t in trials if isinstance(t, (int, float))],
+                    "wellness": m_data.get("wellness"),
+                    "iri": m_data.get("iri")
+                }
+                print(f"[AUTO-SYNC] Disparando análisis Ex-Gaussiano en tiempo real para {athlete_name}...")
+                pvt_exgauss_worker.process_athlete(db, measurement_payload, date_str)
+                print(f"[AUTO-SYNC] Análisis Ex-Gaussiano completado exitosamente.")
+            else:
+                print(f"[AUTO-SYNC] Sin trials crudos PVT para {athlete_name}. Se omite Ex-Gauss.")
+                
+        except Exception as ex_err:
+            print(f"[ERROR EX-GAUSS RT] Falla en cálculo: {str(ex_err)}")
 
     except Exception as e:
         print(f"[ERROR AUTO-SYNC] {str(e)}")
