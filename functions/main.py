@@ -581,6 +581,7 @@ def list_dashboard_users(req: https_fn.CallableRequest) -> dict:
         while page:
             for user in page.users:
                 role = user.custom_claims.get('role', 'COACH') if user.custom_claims else 'COACH'
+                team = user.custom_claims.get('team', '') if user.custom_claims else ''
                 # Identificar si es la cuenta DEMO
                 if user.email == 'demo@imedpredictor.com':
                     role = 'DEMO'
@@ -589,6 +590,7 @@ def list_dashboard_users(req: https_fn.CallableRequest) -> dict:
                     "uid": user.uid,
                     "email": user.email,
                     "role": role,
+                    "team": team,
                     "creationTime": user.user_metadata.creation_timestamp
                 })
             page = page.get_next_page()
@@ -606,6 +608,7 @@ def create_dashboard_user(req: https_fn.CallableRequest) -> dict:
     email = req.data.get("email")
     password = req.data.get("password")
     role = req.data.get("role", "COACH")
+    team = req.data.get("team", "")
     
     if not email or not password:
         return {"status": "error", "message": "Email y contraseña requeridos."}
@@ -615,7 +618,11 @@ def create_dashboard_user(req: https_fn.CallableRequest) -> dict:
             email=email,
             password=password
         )
-        auth.set_custom_user_claims(user.uid, {'role': role})
+        claims = {'role': role}
+        if team:
+            claims['team'] = team
+            
+        auth.set_custom_user_claims(user.uid, claims)
         return {"status": "success", "message": f"Usuario {email} creado con rol {role}."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -638,5 +645,29 @@ def delete_dashboard_user(req: https_fn.CallableRequest) -> dict:
             
         auth.delete_user(uid)
         return {"status": "success", "message": "Usuario eliminado."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@https_fn.on_call()
+def update_dashboard_user_team(req: https_fn.CallableRequest) -> dict:
+    """Actualiza la plantilla (team) asignada a un usuario."""
+    from firebase_admin import auth
+    uid = req.data.get("uid")
+    team = req.data.get("team", "")
+    
+    if not uid:
+        return {"status": "error", "message": "UID requerido."}
+        
+    try:
+        user = auth.get_user(uid)
+        claims = user.custom_claims or {}
+        
+        if team:
+            claims['team'] = team
+        else:
+            claims.pop('team', None)
+            
+        auth.set_custom_user_claims(uid, claims)
+        return {"status": "success", "message": "Plantilla actualizada con éxito."}
     except Exception as e:
         return {"status": "error", "message": str(e)}

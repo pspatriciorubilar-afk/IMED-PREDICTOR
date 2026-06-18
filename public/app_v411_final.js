@@ -19,6 +19,7 @@ if (savedLocal) {
 let db, auth;
 let unsubscribe = null;
 let allPerformance = [];
+let allPerformanceRaw = [];
 let gAthletesCache = [];
 let correlationChart = null;
 let teamTrendChart = null;
@@ -52,6 +53,7 @@ try {
             try {
                 const idTokenResult = await user.getIdTokenResult();
                 window.currentUserRole = idTokenResult.claims.role || 'COACH';
+                window.currentUserTeam = idTokenResult.claims.team || null;
                 // La cuenta demo oficial siempre es DEMO
                 if (user.email === 'demo@imedpredictor.com') window.currentUserRole = 'DEMO';
                 
@@ -105,11 +107,16 @@ async function init() {
 
 // ─── Onboarding & Real-time ───
 function startAthletesOnboarding() {
-    db.collection('athletes').onSnapshot(snap => {
+    let query = db.collection('athletes');
+    if (window.currentUserTeam && window.currentUserRole !== 'ADMIN') {
+        query = query.where('team', '==', window.currentUserTeam);
+    }
+    query.onSnapshot(snap => {
         gAthletesCache = snap.docs.map(d => {
             const data = d.data();
             return { id: d.id, ...data, fullName: data.fullName || `${data.firstName || ''} ${data.lastName || ''}`.trim() || d.id };
         });
+        applyTeamFilterToPerformance();
         renderAthletesTable();
         renderSncTable();
         renderDashboard();
@@ -126,12 +133,15 @@ function startRealtimeListener() {
         .onSnapshot(snap => {
             // Filtrar IDs basura generados por el bug de race condition (athlete_pending_xxx)
             // Estos registros nunca corresponden a un atleta real del sistema
-            allPerformance = snap.docs
+            allPerformanceRaw = snap.docs
                 .map(d => ({ id: d.id, ...d.data() }))
                 .filter(p => {
                     const aid = String(p.athleteId || '');
                     return aid.length > 0 && !aid.startsWith('athlete_pending_');
                 });
+            
+            applyTeamFilterToPerformance();
+            
             if (rtDot) { rtDot.className = 'status-dot green'; }
             renderDashboard();
             renderSncTable();
@@ -140,6 +150,15 @@ function startRealtimeListener() {
             console.error('[LISTENER ERROR]', err);
             if (rtDot) { rtDot.className = 'status-dot red'; }
         });
+}
+
+function applyTeamFilterToPerformance() {
+    if (window.currentUserTeam && window.currentUserRole !== 'ADMIN') {
+        const allowedIds = new Set(gAthletesCache.map(a => String(a.id)));
+        allPerformance = allPerformanceRaw.filter(p => allowedIds.has(String(p.athleteId)));
+    } else {
+        allPerformance = allPerformanceRaw;
+    }
 }
 
 // ─── Navigation ───
@@ -160,11 +179,13 @@ function showView(viewId) {
         'athletes': 'Gestión de Atletas', 
         'reports': 'Análisis de Tendencias', 
         'upload': 'Carga de Datos GPS',
-        'settings': 'Configuración del Sistema'
+        'settings': 'Configuración del Sistema',
+        'users': 'Gestión de Accesos y Roles'
     };
     const titleEl = document.getElementById('page-title');
     if (titleEl) titleEl.textContent = titleMap[viewId] || 'IMED Predictor';
     if (viewId === 'reports') loadAthleteReport(document.getElementById('report-athlete-select')?.value);
+    if (viewId === 'users') loadDashboardUsers();
     if (viewId === 'settings') {
         document.getElementById('threshold-iri').value = THRESH.iriCritical;
         document.getElementById('threshold-lapses').value = THRESH.lapses;
@@ -1493,14 +1514,6 @@ window.addEventListener('click', (e) => {
 // USER MANAGEMENT (RBAC PANEL)
 // ==============================================================================
 
-function openUsersPanelModal() {
-    document.getElementById('users-panel-modal').classList.remove('hidden');
-    loadDashboardUsers();
-}
-
-function closeUsersPanelModal() {
-    document.getElementById('users-panel-modal').classList.add('hidden');
-}
 
 async function loadDashboardUsers() {
     const tbody = document.getElementById('users-list-body');
@@ -1517,7 +1530,7 @@ async function loadDashboardUsers() {
             tbody.innerHTML = '';
             
             if (users.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px">No hay usuarios</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px">No hay usuarios</td></tr>';
                 return;
             }
             
@@ -1528,17 +1541,24 @@ async function loadDashboardUsers() {
                 else if (u.role === 'DEMO') roleBadge = '<span class="badge purple-badge">DEMO</span>';
                 else roleBadge = '<span class="badge green-badge">COACH</span>';
                 
+                const teamBadge = u.team ? `<span class="badge badge-gray">${u.team}</span>` : `<span class="badge" style="background:rgba(255,255,255,0.1); color:#A1A1AA">Todas</span>`;
+                
                 const isDemo = u.email === 'demo@imedpredictor.com';
                 const deleteBtn = isDemo ? 
                     `<button class="btn-icon" style="opacity:0.3; cursor:not-allowed" title="Demo inborrable">🗑</button>` :
                     `<button class="btn-icon" style="color:#FF4D4D" title="Revocar Acceso" onclick="deleteDashboardUser('${u.uid}', '${u.email}')">🗑</button>`;
+                
+                const editTeamBtn = isDemo || u.role === 'ADMIN' ? 
+                    '' : 
+                    `<button class="btn-icon" style="color:#00E5FF; margin-right:8px" title="Asignar Plantilla" onclick="openAssignTeamModal('${u.uid}', '${u.team || ''}')">⚙️</button>`;
 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td style="font-weight:500; color:#fff">${u.email}</td>
                     <td>${roleBadge}</td>
+                    <td>${teamBadge}</td>
                     <td style="color:var(--text-dim)">${date}</td>
-                    <td>${deleteBtn}</td>
+                    <td>${editTeamBtn}${deleteBtn}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -1556,22 +1576,31 @@ function openNewUserModal() {
     document.getElementById('new-user-error').style.display = 'none';
     document.getElementById('new-user-success').style.display = 'none';
     
-    // Ocultar temporalmente el panel principal para evitar modales superpuestos,
-    // o simplemente mostrarlo por encima si el z-index lo permite.
-    document.getElementById('users-panel-modal').classList.add('hidden');
+    const teamSelect = document.getElementById('new-user-team');
+    if (teamSelect) {
+        teamSelect.innerHTML = '<option value="">Todas (Sin restricción)</option>';
+        const teams = [...new Set(gAthletesCache.map(a => a.team).filter(Boolean))].sort();
+        teams.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            teamSelect.appendChild(opt);
+        });
+    }
+    
     document.getElementById('new-user-modal').classList.remove('hidden');
 }
 
 function closeNewUserModal() {
     document.getElementById('new-user-modal').classList.add('hidden');
-    // Restaurar panel principal
-    document.getElementById('users-panel-modal').classList.remove('hidden');
 }
 
 async function submitNewUser() {
     const email = document.getElementById('new-user-email').value.trim();
     const pass = document.getElementById('new-user-pass').value;
     const role = document.getElementById('new-user-role').value;
+    const teamSelect = document.getElementById('new-user-team');
+    const team = teamSelect ? teamSelect.value : '';
     const btn = document.getElementById('btn-new-user');
     const errEl = document.getElementById('new-user-error');
     const sucEl = document.getElementById('new-user-success');
@@ -1590,7 +1619,7 @@ async function submitNewUser() {
     
     try {
         const fn = firebase.functions().httpsCallable('create_dashboard_user');
-        const res = await fn({ email, password: pass, role });
+        const res = await fn({ email, password: pass, role, team });
         
         if (res.data.status === 'success') {
             sucEl.textContent = '✅ Usuario creado exitosamente.';
@@ -1629,4 +1658,63 @@ async function deleteDashboardUser(uid, email) {
     }
 }
 
+function openAssignTeamModal(uid, currentTeam) {
+    document.getElementById('assign-team-error').style.display = 'none';
+    document.getElementById('assign-team-success').style.display = 'none';
+    document.getElementById('assign-team-uid').value = uid;
+    
+    const teamSelect = document.getElementById('assign-team-select');
+    if (teamSelect) {
+        teamSelect.innerHTML = '<option value="">Todas (Sin restricción)</option>';
+        const teams = [...new Set(gAthletesCache.map(a => a.team).filter(Boolean))].sort();
+        teams.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            if (t === currentTeam) opt.selected = true;
+            teamSelect.appendChild(opt);
+        });
+    }
+    
+    document.getElementById('assign-team-modal').classList.remove('hidden');
+}
 
+function closeAssignTeamModal() {
+    document.getElementById('assign-team-modal').classList.add('hidden');
+}
+
+async function submitAssignTeam() {
+    const uid = document.getElementById('assign-team-uid').value;
+    const teamSelect = document.getElementById('assign-team-select');
+    const newTeam = teamSelect ? teamSelect.value : '';
+    const btn = document.getElementById('btn-assign-team');
+    const errEl = document.getElementById('assign-team-error');
+    const sucEl = document.getElementById('assign-team-success');
+    
+    errEl.style.display = 'none';
+    sucEl.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="kpi-spinner"></span> Guardando...';
+    
+    try {
+        const fn = firebase.functions().httpsCallable('update_dashboard_user_team');
+        const res = await fn({ uid, team: newTeam.trim() });
+        if (res.data.status === 'success') {
+            sucEl.textContent = '✅ Plantilla actualizada exitosamente.';
+            sucEl.style.display = 'block';
+            setTimeout(() => {
+                closeAssignTeamModal();
+                loadDashboardUsers();
+            }, 1000);
+        } else {
+            throw new Error(res.data.message);
+        }
+    } catch (e) {
+        console.error(e);
+        errEl.textContent = `Error al actualizar: ${e.message}`;
+        errEl.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Guardar Cambios';
+    }
+}

@@ -104,7 +104,9 @@
 
     // ─── Logout ───
     window.imedLogout = function () {
-      auth.signOut();
+      auth.signOut().then(() => {
+        window.location.reload();
+      });
     };
   });
 
