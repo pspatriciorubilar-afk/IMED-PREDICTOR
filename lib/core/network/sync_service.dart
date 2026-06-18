@@ -237,6 +237,10 @@ class SyncService {
             "fastest": fastest,
             "slowest": slowest,
             "totalTrials": pvtLog.length,
+            // CRÍTICO: Arrays de trials crudos requeridos por el worker Ex-Gaussiano
+            // y por pvt_data_source. Ambas claves se incluyen para compatibilidad.
+            "trials": pvtLog,
+            "rawReactionTimes": pvtLog,
           }
         },
         "deviceInfo": {
@@ -270,6 +274,9 @@ class SyncService {
             "fastest":     fastest,
             "slowest":     slowest,
             "totalTrials": pvtLog.length,
+            // CRÍTICO: Arrays de trials crudos para el trigger auto_sync_to_dashboard
+            "trials": pvtLog,
+            "rawReactionTimes": pvtLog,
           }
         },
         "timestamp": FieldValue.serverTimestamp(),

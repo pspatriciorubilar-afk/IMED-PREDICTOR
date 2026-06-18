@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:isar/isar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../domain/pvt_session.dart';
+import '../../../core/biometrics/snc_engine.dart';
 
 /**
  * MOTOR DE SINCRONIZACIÓN ÉLITE (IMED PREDICTOR)
@@ -68,6 +69,10 @@ class PvtDataSource {
       final firestore = FirebaseFirestore.instance;
       final dateStr = session.timestamp.toLocal().toString().split(' ')[0]; // YYYY-MM-DD
 
+      // Calcular IRI real desde los tiempos de reacción (corrige el TODO anterior de iri:0)
+      final iriScore = SNCEngine.calculateIRI(0.0, session.rawReactionTimes);
+      final statusSNC = SNCEngine.getStatus(iriScore);
+
       // ── Estructura requerida por auto_sync_to_dashboard Cloud Function ──
       // Colección: athletes/{athleteId}/measurements/{auto-id}
       // El trigger de Firestore detecta la creación y sincroniza a Daily_Performance.
@@ -80,9 +85,9 @@ class PvtDataSource {
         "date":      dateStr,
         "timestamp": session.timestamp.toIso8601String(),
 
-        // Resultado IRI (calculado localmente por SNCEngine)
-        "iri":    0,    // TODO: pasar el IRI calculado por SNCEngine desde el notifier
-        "status": "PENDING",
+        // Resultado IRI calculado por SNCEngine (NO hardcodeado a 0)
+        "iri":    iriScore,
+        "status": statusSNC,
 
         // Objeto PVT — estructura que lee la Cloud Function y el worker Ex-Gaussiano
         "pvt": {
@@ -90,14 +95,14 @@ class PvtDataSource {
             "meanLatency": session.meanLatency,
             "lapses":      session.lapsesCount,
             "falseStarts": session.falseStarts,
-            // ⭐ CAMPO CRÍTICO: array crudo requerido por pvt_exgauss_worker.py
+            // Ambas claves para compatibilidad con pvt_exgauss_worker.py
             "trials":          session.rawReactionTimes,
             "rawReactionTimes": session.rawReactionTimes,
             "n_trials":        session.rawReactionTimes.length,
           }
         },
 
-        // Wellness — se rellenará cuando se integre el flujo biométrico completo
+        // Wellness — se rellenará cuando se integre el flujo biológico completo
         "wellness": null,
 
         // Metadatos
@@ -106,7 +111,7 @@ class PvtDataSource {
         "syncedAt": FieldValue.serverTimestamp(),
       });
 
-      print("🔥 [FIREBASE] Sesión guardada en athletes/$athleteId/measurements/ (${session.rawReactionTimes.length} trials)");
+      print("🔥 [FIREBASE] Sesión guardada en athletes/$athleteId/measurements/ (${session.rawReactionTimes.length} trials | IRI: $iriScore)");
     } catch (e) {
       print("🔥 [FIREBASE-ERROR] Error al guardar en Firestore: $e");
     }

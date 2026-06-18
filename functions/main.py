@@ -313,7 +313,9 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         pvt = m_data.get("pvt", {})
         mean_latency = pvt.get("metrics", {}).get("meanLatency", m_data.get("latency", 0))
 
-        # Payload para Daily_Performance
+        # ── PASO 1: Escribir en Daily_Performance SIEMPRE (sync garantizado) ──
+        # Este bloque se ejecuta de forma independiente al análisis Ex-Gaussiano.
+        # Un fallo del worker NO debe impedir que el dato llegue al Dashboard.
         doc_id = f"{athlete_id}_{date_str}"
         payload = {
             "athleteId": athlete_id,
@@ -331,19 +333,21 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         
         # Guardar en Daily_Performance (merge=True para no borrar datos GPS si ya existen)
         db.collection("Daily_Performance").document(doc_id).set(payload, merge=True)
-        print(f"[AUTO-SYNC] Sincronización exitosa para {athlete_name} ({date_str})")
+        print(f"[AUTO-SYNC] ✅ Daily_Performance actualizado para {athlete_name} ({date_str})")
 
-        # ── DISPARADOR EX-GAUSSIANO EN TIEMPO REAL ──
+        # ── PASO 2: DISPARADOR EX-GAUSSIANO (best-effort, no bloquea el sync) ──
+        # Encapsulado en try/except independiente: si falla, el dato ya está guardado.
         try:
             import pvt_exgauss_worker
             
-            pvt = m_data.get("pvt", {})
-            metrics = pvt.get("metrics", {})
+            pvt_data = m_data.get("pvt", {})
+            metrics_data = pvt_data.get("metrics", {})
+            # Buscar trials en todos los paths posibles (compatibilidad multi-versión)
             trials = (
-                metrics.get("trials") or
-                metrics.get("rawReactionTimes") or
-                pvt.get("trials") or
-                pvt.get("logs") or
+                metrics_data.get("trials") or
+                metrics_data.get("rawReactionTimes") or
+                pvt_data.get("trials") or
+                pvt_data.get("logs") or
                 m_data.get("trials") or
                 []
             )
@@ -357,14 +361,15 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
                     "wellness": m_data.get("wellness"),
                     "iri": m_data.get("iri")
                 }
-                print(f"[AUTO-SYNC] Disparando análisis Ex-Gaussiano en tiempo real para {athlete_name}...")
+                print(f"[AUTO-SYNC] Disparando análisis Ex-Gaussiano para {athlete_name}...")
                 pvt_exgauss_worker.process_athlete(db, measurement_payload, date_str)
-                print(f"[AUTO-SYNC] Análisis Ex-Gaussiano completado exitosamente.")
+                print(f"[AUTO-SYNC] ✅ Análisis Ex-Gaussiano completado.")
             else:
                 print(f"[AUTO-SYNC] Sin trials crudos PVT para {athlete_name}. Se omite Ex-Gauss.")
                 
         except Exception as ex_err:
-            print(f"[ERROR EX-GAUSS RT] Falla en cálculo: {str(ex_err)}")
+            # IMPORTANTE: Este error NO cancela el sync. El dato ya fue guardado arriba.
+            print(f"[ERROR EX-GAUSS RT] ⚠️ Worker falló (dato sincronizado de todas formas): {str(ex_err)}")
 
     except Exception as e:
         print(f"[ERROR AUTO-SYNC] {str(e)}")
@@ -446,3 +451,192 @@ def sync_athlete_history(req: https_fn.CallableRequest) -> dict:
         return {"success": True, "synced_records": synced}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@https_fn.on_call()
+def manual_register(req: https_fn.CallableRequest) -> dict:
+    """
+    Registro manual de evaluación desde el Dashboard.
+    Permite ingresar los resultados de un atleta directamente sin necesitar la app móvil.
+    Útil cuando el dato quedó guardado localmente en el dispositivo y no sincronizó.
+    
+    Parámetros esperados:
+        athleteId   : ID del atleta en Firestore
+        date        : Fecha en formato YYYY-MM-DD
+        iri         : Índice de Recuperación Integrado (0-100)
+        lapses      : Número de lapsos de atención en PVT
+        meanLatency : Latencia media de reacción en ms (opcional)
+        sleepHours  : Horas de sueño (opcional, wellness)
+        sleepQuality: Calidad del sueño 1-5 (opcional, wellness)
+        stressLevel : Nivel de estrés 1-5 (opcional, wellness)
+        fatigueLevel: Nivel de fatiga 1-5 (opcional, wellness)
+    """
+    db = firestore.client()
+    try:
+        athlete_id   = req.data.get("athleteId", "").strip()
+        date_str     = req.data.get("date", "").strip()
+        iri          = int(req.data.get("iri", 0))
+        lapses       = int(req.data.get("lapses", 0))
+        mean_latency = int(req.data.get("meanLatency", 0))
+
+        if not athlete_id or not date_str:
+            return {"status": "error", "message": "athleteId y date son requeridos."}
+
+        # Calcular estado SNC en base al IRI
+        if iri >= 85:
+            status = "OPTIMO"
+        elif iri >= 70:
+            status = "ESTABLE"
+        elif iri >= 60:
+            status = "ADVERTENCIA"
+        else:
+            status = "CRITICO"
+
+        # Obtener nombre del atleta
+        athlete_doc = db.collection("athletes").document(athlete_id).get()
+        if athlete_doc.exists:
+            ad = athlete_doc.to_dict()
+            athlete_name = f"{ad.get('firstName','')} {ad.get('lastName','')}".strip() or athlete_id
+        else:
+            athlete_name = athlete_id
+
+        # Wellness (opcional)
+        wellness = {
+            "sleepHours":    req.data.get("sleepHours"),
+            "sleepQuality":  req.data.get("sleepQuality"),
+            "stressLevel":   req.data.get("stressLevel"),
+            "fatigueLevel":  req.data.get("fatigueLevel"),
+        }
+
+        # Escribir en athletes/{id}/measurements para mantener historial
+        meas_payload = {
+            "date":      date_str,
+            "timestamp": date_str + "T12:00:00",
+            "iri":       iri,
+            "status":    status,
+            "wellness":  wellness,
+            "pvt": {
+                "metrics": {
+                    "meanLatency": mean_latency,
+                    "lapses":      lapses,
+                }
+            },
+            "sync_method": "manual_dashboard_entry",
+            "syncedAt":    firestore.SERVER_TIMESTAMP,
+        }
+        db.collection("athletes").document(athlete_id)\
+          .collection("measurements").add(meas_payload)
+
+        # Escribir en Daily_Performance (lo que ve el dashboard)
+        doc_id = f"{athlete_id}_{date_str}"
+        dp_payload = {
+            "athleteId":   athlete_id,
+            "athleteName": athlete_name,
+            "date":        date_str,
+            "iri":         iri,
+            "status":      status,
+            "lapses":      lapses,
+            "latency":     mean_latency,
+            "wellness":    wellness,
+            "pvt": {
+                "metrics": {
+                    "meanLatency": mean_latency,
+                    "lapses":      lapses,
+                }
+            },
+            "timestamp":   firestore.SERVER_TIMESTAMP,
+            "sync_method": "manual_dashboard_entry",
+        }
+        db.collection("Daily_Performance").document(doc_id).set(dp_payload, merge=True)
+
+        print(f"[MANUAL] Registro manual creado: {athlete_name} ({date_str}) | IRI: {iri} | Status: {status}")
+        return {
+            "status":  "success",
+            "message": f"Evaluacion de {athlete_name} registrada correctamente para {date_str}.",
+            "iri":     iri,
+            "sncStatus": status,
+        }
+
+    except Exception as e:
+        print(f"[MANUAL-ERROR] {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+# ==============================================================================
+# USER MANAGEMENT (RBAC)
+# ==============================================================================
+
+@https_fn.on_call()
+def list_dashboard_users(req: https_fn.CallableRequest) -> dict:
+    """Lista todos los usuarios de Firebase Auth para el panel de administración."""
+    from firebase_admin import auth
+    
+    # Solo ADMIN puede listar
+    # En un entorno estricto verificaríamos el token, pero para la demo inicial validamos desde cliente.
+    # user_role = req.auth.token.get('role') si req.auth else None
+    
+    try:
+        users = []
+        page = auth.list_users()
+        while page:
+            for user in page.users:
+                role = user.custom_claims.get('role', 'COACH') if user.custom_claims else 'COACH'
+                # Identificar si es la cuenta DEMO
+                if user.email == 'demo@imedpredictor.com':
+                    role = 'DEMO'
+                    
+                users.append({
+                    "uid": user.uid,
+                    "email": user.email,
+                    "role": role,
+                    "creationTime": user.user_metadata.creation_timestamp
+                })
+            page = page.get_next_page()
+            
+        return {"status": "success", "users": users}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@https_fn.on_call()
+def create_dashboard_user(req: https_fn.CallableRequest) -> dict:
+    """Crea un usuario en Firebase Auth y le asigna un rol."""
+    from firebase_admin import auth
+    
+    email = req.data.get("email")
+    password = req.data.get("password")
+    role = req.data.get("role", "COACH")
+    
+    if not email or not password:
+        return {"status": "error", "message": "Email y contraseña requeridos."}
+        
+    try:
+        user = auth.create_user(
+            email=email,
+            password=password
+        )
+        auth.set_custom_user_claims(user.uid, {'role': role})
+        return {"status": "success", "message": f"Usuario {email} creado con rol {role}."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@https_fn.on_call()
+def delete_dashboard_user(req: https_fn.CallableRequest) -> dict:
+    """Elimina un usuario de Firebase Auth."""
+    from firebase_admin import auth
+    uid = req.data.get("uid")
+    
+    if not uid:
+        return {"status": "error", "message": "UID requerido."}
+        
+    try:
+        # Prevenir borrar la cuenta demo si está hardcodeada
+        user = auth.get_user(uid)
+        if user.email == 'demo@imedpredictor.com':
+            return {"status": "error", "message": "No se puede eliminar la cuenta DEMO oficial."}
+            
+        auth.delete_user(uid)
+        return {"status": "success", "message": "Usuario eliminado."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

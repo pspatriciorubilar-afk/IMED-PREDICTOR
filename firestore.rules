@@ -1,28 +1,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ─── 1. ONBOARDING & ATLETAS (SOLO LECTURA) ───
-    // La creación y edición ocurre solo en la App Móvil.
-    // El Dashboard SaaS consume estos datos como 'Source of Truth'.
+
+    // ─── FUNCIÓN DE VALIDACIÓN: Solo usuarios autenticados ───
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // ─── 1. ATLETAS ───
+    // Permitimos read/write público temporalmente para que la App Móvil 
+    // pueda enviar telemetría sin estar autenticada con Firebase Auth.
     match /athletes/{athleteId} {
-      allow read, write: if true; 
-      
+      allow read, write: if true;
+
       match /measurements/{measurementId} {
         allow read, write: if true;
       }
     }
 
-    // ─── 2. ANÁLISIS DIARIO (LECTURA/ESCRITURA) ───
-    // Colección maestra donde el Motor IVN y el Dashboard consolidan resultados.
+    // ─── 2. RENDIMIENTO DIARIO ───
+    // Motor IVN (App Móvil / Cloud Functions) puede escribir
+    // Dashboard SaaS puede leer. Dejamos write true para el backend local/móvil.
     match /Daily_Performance/{docId} {
-      allow read: if true;
-      allow write: if true; 
+      allow read:  if true;
+      allow write: if true;
     }
-    
-    // ─── 3. REGLA POR DEFECTO ───
+
+    // ─── 3. CONFIGURACIÓN DEL SISTEMA ───
+    match /system_config/{docId} {
+      allow read:  if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // ─── 4. REGLA POR DEFECTO ───
     match /{document=**} {
-      allow read: if true;
+      allow read:  if isAuthenticated();
       allow write: if false;
     }
   }

@@ -169,13 +169,52 @@ class _BiometricFlowCoordinatorState extends State<BiometricFlowCoordinator> {
       case 2:
         return const SizedBox.shrink();
       case 3:
-        // Fallback: Si el perfil no ha cargado aún, usamos un ID genérico temporal
-        // para no bloquear el flujo del deportista, pero priorizamos su ID real.
-        final effectiveId = _userProfile?.athleteId ?? "athlete_pending_${DateTime.now().millisecondsSinceEpoch}";
+        // CRÍTICO: Verificar que el athleteId real esté disponible.
+        // Si el perfil no cargó, mostrar error en lugar de usar un ID basura
+        // que haría el dato invisible en el Dashboard.
+        if (_userProfile == null || (_userProfile!.athleteId?.isEmpty ?? true)) {
+          return Scaffold(
+            backgroundColor: Colors.black,
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, color: Color(0xFFFF4D4D), size: 64),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'PERFIL NO ENCONTRADO',
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'No se pudo encontrar tu perfil de deportista. Cierra la app y vuelve a abrirla. Si el problema persiste, contacta a tu entrenador.',
+                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13, height: 1.5),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 32),
+                    ElevatedButton(
+                      onPressed: () => setState(() => _currentStep = 0),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF00E5FF).withOpacity(0.15),
+                        foregroundColor: const Color(0xFF00E5FF),
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('REINTENTAR'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
         
         return _ProcessingScreen(
           payload: BiometricPayload(
-            athleteId: effectiveId,
+            athleteId: _userProfile!.athleteId!,
             timestamp: DateTime.now(),
             wellness: _wellnessData!,
             pvtLog: _pvtLog!,

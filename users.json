@@ -1,0 +1,12 @@
+{"users": [
+{
+  "localId": "7yyRQ1mggCNxjE6kwzdejzeO4m83",
+  "email": "demo@imedpredictor.com",
+  "emailVerified": false,
+  "passwordHash": "ChJR4VqoDx8rBq/78lrqf+8Ec6SRlw7+6d9Sepm2GwzzbiN64Fj028RTZfdi1GZcKen5roep8mxs22zWox0GEA==",
+  "salt": "34KfMonfaM4oJA==",
+  "lastSignedInAt": "1781800504228",
+  "createdAt": "1781709117849",
+  "disabled": false,
+  "providerUserInfo": []
+}]}

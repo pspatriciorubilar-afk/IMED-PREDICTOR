@@ -18,8 +18,104 @@
   <script src="gps_brands.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <link rel="stylesheet" href="style.css?v=1.0.2" />
+  <link rel="stylesheet" href="login.css" />
 </head>
 <body>
+
+  <!-- ═══════════════════════════════════════════════
+       DEMO LOGIN SCREEN — Capital Semilla
+       Protege el acceso al sistema con Firebase Auth
+  ════════════════════════════════════════════════ -->
+  <div id="login-screen">
+    <!-- Fondo animado -->
+    <div class="login-bg">
+      <div class="login-orb login-orb-1"></div>
+      <div class="login-orb login-orb-2"></div>
+      <div class="login-orb login-orb-3"></div>
+    </div>
+
+    <!-- Tarjeta de login -->
+    <div class="login-card">
+
+      <!-- Logo -->
+      <div class="login-logo">
+        <div class="login-logo-icon">⚡</div>
+        <div class="login-logo-text">
+          <span class="login-logo-title">IMED</span>
+          <span class="login-logo-sub">PREDICTOR</span>
+        </div>
+      </div>
+
+      <h1 class="login-heading">Acceso al Sistema</h1>
+      <p class="login-sub">Plataforma de Neuro-Inteligencia Deportiva · Acceso Restringido</p>
+
+      <!-- Badge con credenciales demo visibles -->
+      <div class="demo-badge">
+        <div class="demo-badge-icon">🔑</div>
+        <div class="demo-badge-content">
+          <div class="demo-badge-label">CUENTA DEMO — EVALUADOR</div>
+          <div class="demo-credentials">
+            <div class="demo-cred-row">
+              <span class="demo-cred-key">Email</span>
+              <span class="demo-cred-val" title="Click para copiar" onclick="navigator.clipboard.writeText('demo@imedpredictor.com')">demo@imedpredictor.com</span>
+            </div>
+            <div class="demo-cred-row">
+              <span class="demo-cred-key">Password</span>
+              <span class="demo-cred-val" title="Click para copiar" onclick="navigator.clipboard.writeText('ImedDemo2026!')">ImedDemo2026!</span>
+            </div>
+          </div>
+          <button id="demo-fill-btn" class="demo-fill-btn" type="button" onclick="fillDemoCredentials()">↓ Usar credenciales demo</button>
+        </div>
+      </div>
+
+      <!-- Formulario -->
+      <form id="login-form" autocomplete="off">
+        <div class="login-form-group">
+          <label class="login-label" for="login-email">Email</label>
+          <input
+            id="login-email"
+            type="email"
+            class="login-input"
+            placeholder="tu@email.com"
+            required
+            autocomplete="username"
+          />
+        </div>
+
+        <div class="login-form-group">
+          <label class="login-label" for="login-password">Contraseña</label>
+          <input
+            id="login-password"
+            type="password"
+            class="login-input"
+            placeholder="••••••••••"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <!-- Error -->
+        <div id="login-error" class="login-error"></div>
+
+        <button id="login-submit-btn" type="submit" class="login-btn">⚡ Ingresar al Sistema</button>
+      </form>
+
+      <!-- Footer -->
+      <div class="login-footer">
+        <span class="login-footer-brand">© 2026 IMED SPORT SNC</span>
+        <div class="login-footer-security">
+          <div class="login-footer-dot"></div>
+          <span>Conexión Segura</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       APP SHELL — Contenido protegido (oculto hasta autenticación)
+  ════════════════════════════════════════════════ -->
+  <div id="app-shell" style="display:none">
   <!-- ═══════════════════════════════════════════════
        SIDEBAR
   ════════════════════════════════════════════════ -->
@@ -47,6 +143,9 @@
       </li>
       <li class="nav-item" id="nav-upload" onclick="showView('upload')">
         <span class="nav-icon">⬆</span><span>Subir GPS</span>
+      </li>
+      <li class="nav-item" id="nav-users" onclick="openUsersPanelModal()">
+        <span class="nav-icon">👥</span><span>Usuarios</span>
       </li>
       <li class="nav-item" id="nav-settings" onclick="showView('settings')">
         <span class="nav-icon">⚙</span><span>Ajustes</span>
@@ -393,6 +492,30 @@
         </div>
         <button class="btn-primary" onclick="saveSettings()" style="margin-top:24px;">Guardar Configuración</button>
       </section>
+
+      <!-- ─── Panel de Recuperación de Datos ─── -->
+      <section class="panel glass" style="max-width:680px; margin:24px auto 0; border-left: 3px solid var(--yellow);">
+        <div class="panel-header">
+          <div>
+            <div class="panel-label" style="color:var(--yellow)">HERRAMIENTA DE MANTENIMIENTO</div>
+            <h2 class="panel-title">Recuperar Datos Perdidos</h2>
+          </div>
+        </div>
+        <p style="font-size:13px; color:var(--text-2); line-height:1.6; margin:0 0 16px;">
+          Si los deportistas realizaron sus pruebas pero los datos no aparecen en el dashboard, 
+          usa esta herramienta para re-sincronizar las mediciones directamente desde la base de datos.
+          Útil después de una falla del sistema o un despliegue fallido de Cloud Functions.
+        </p>
+        <div style="background:rgba(255,214,10,0.05); border:1px solid rgba(255,214,10,0.15); border-radius:10px; padding:14px; margin-bottom:16px; font-size:12px; color:var(--text-2); line-height:1.5;">
+          <strong style="color:var(--yellow)">¿Cómo funciona?</strong><br>
+          El sistema buscará las mediciones almacenadas por la app móvil para la fecha indicada
+          y las forzará a aparecer en el dashboard. Solo funciona si la app guardó los datos localmente.
+        </div>
+        <button id="btn-recover" class="btn-primary" onclick="recoverMissingData()" 
+          style="background:rgba(255,214,10,0.1); color:var(--yellow); border:1px solid rgba(255,214,10,0.3); width:100%;">
+          🔄 Recuperar Datos de Fecha Específica
+        </button>
+      </section>
     </div>
 
   </main>
@@ -426,6 +549,161 @@
     <div class="modal-box glass" id="snc-modal-content"></div>
   </div>
 
+  <!-- ═══ MODAL: REGISTRO MANUAL DE EVALUACION ═══ -->
+  <div id="manual-entry-modal" class="modal-overlay hidden" onclick="closeManualEntry(event)">
+    <div class="modal-box glass" style="max-width:520px" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <div class="panel-label" style="color:var(--yellow)">REGISTRO MANUAL</div>
+          <h2 class="panel-title" id="manual-athlete-title">Ingresar Evaluacion</h2>
+        </div>
+        <button class="modal-close" onclick="closeManualEntry()">✕</button>
+      </div>
+      <p style="font-size:12px;color:var(--text-2);margin:0 0 20px;line-height:1.5;">
+        Usa este formulario cuando el deportista realizo la prueba pero el dato no sincronizo desde la app.
+        El resultado aparecera en el dashboard de inmediato.
+      </p>
+      <input type="hidden" id="manual-athlete-id" />
+      <input type="hidden" id="manual-date" />
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="form-group">
+          <label class="form-label">IRI (0-100) *</label>
+          <input type="number" id="manual-iri" class="input-glass w-full" min="0" max="100" placeholder="ej: 82" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lapses PVT *</label>
+          <input type="number" id="manual-lapses" class="input-glass w-full" min="0" placeholder="ej: 1" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Latencia Media (ms)</label>
+          <input type="number" id="manual-latency" class="input-glass w-full" min="0" placeholder="ej: 285" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Horas de Sueno</label>
+          <input type="number" id="manual-sleep" class="input-glass w-full" min="0" max="24" step="0.5" placeholder="ej: 7.5" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Calidad Sueno (1-5)</label>
+          <input type="number" id="manual-sleep-q" class="input-glass w-full" min="1" max="5" placeholder="ej: 4" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Estres (1-5)</label>
+          <input type="number" id="manual-stress" class="input-glass w-full" min="1" max="5" placeholder="ej: 2" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Fatiga (1-5)</label>
+          <input type="number" id="manual-fatigue" class="input-glass w-full" min="1" max="5" placeholder="ej: 2" />
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end;">
+          <label class="form-label">Fecha</label>
+          <input type="date" id="manual-date-picker" class="input-glass w-full" />
+        </div>
+      </div>
+      <div id="manual-entry-error" style="color:#FF4D4D;font-size:12px;margin:12px 0;display:none;"></div>
+      <button id="btn-manual-submit" class="btn-primary w-full" style="margin-top:16px" onclick="submitManualEntry()">
+        ⚡ Registrar Evaluacion en Dashboard
+      </button>
+    </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Gestión de Usuarios ─── -->
+  <div id="users-panel-modal" class="modal-overlay hidden">
+    <div class="modal-content glass" style="max-width:1000px; width:95%;">
+      <div class="modal-header" style="margin-bottom:20px;">
+        <div>
+          <div class="panel-label" style="font-size:10px; letter-spacing:1px; color:#A1A1AA; margin-bottom:4px; text-transform:uppercase;">ADMINISTRACIÓN</div>
+          <h3 style="margin:0;font-size:20px;color:#fff;font-weight:600">Gestión de Accesos y Roles</h3>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <button class="btn-primary" onclick="openNewUserModal()">+ Nuevo Usuario</button>
+          <button class="modal-close" onclick="closeUsersPanelModal()" style="position:static; margin:0;">×</button>
+        </div>
+      </div>
+      
+      <div class="table-container" style="margin-top:20px;">
+        <table class="athletes-table">
+          <thead>
+            <tr>
+              <th>EMAIL</th>
+              <th>ROL</th>
+              <th>CREACIÓN</th>
+              <th>ACCIONES</th>
+            </tr>
+          </thead>
+          <tbody id="users-list-body">
+            <tr><td colspan="4" style="text-align:center; padding:20px">Cargando usuarios...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Crear Nuevo Usuario ─── -->
+  <div id="new-user-modal" class="modal-overlay hidden">
+    <div class="modal-content glass" style="width:420px; max-width:90vw; padding:32px;">
+      <div class="modal-header" style="margin-bottom:24px; align-items:flex-start;">
+        <div>
+          <div class="panel-label" style="font-size:10px; letter-spacing:1px; color:#A1A1AA; margin-bottom:6px; text-transform:uppercase;">ADMINISTRACIÓN</div>
+          <h3 style="margin:0;font-size:22px;color:#fff;font-weight:600; letter-spacing:-0.5px;">Nuevo Usuario</h3>
+        </div>
+        <button class="modal-close" onclick="closeNewUserModal()" style="position:static; margin:0; background:rgba(255,255,255,0.05); border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; transition:all 0.2s;">×</button>
+      </div>
+      
+      <div class="form-grid" style="grid-template-columns: 1fr; gap:20px;">
+        <div class="form-group">
+          <label class="form-label" style="color:#A1A1AA; font-size:13px; font-weight:500; margin-bottom:8px; display:block;">Correo Electrónico</label>
+          <input type="email" id="new-user-email" class="input-glass w-full" style="padding:14px 16px; font-size:15px; border-radius:12px; background:rgba(0,0,0,0.4);" placeholder="ej: coach@imedpredictor.com" />
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" style="color:#A1A1AA; font-size:13px; font-weight:500; margin-bottom:8px; display:block;">Contraseña de Acceso</label>
+          <input type="password" id="new-user-pass" class="input-glass w-full" style="padding:14px 16px; font-size:15px; border-radius:12px; background:rgba(0,0,0,0.4);" placeholder="Mínimo 6 caracteres" />
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" style="color:#A1A1AA; font-size:13px; font-weight:500; margin-bottom:8px; display:block;">Nivel de Permisos</label>
+          <select id="new-user-role" class="select-glass w-full" style="padding:14px 16px; font-size:15px; border-radius:12px; background:rgba(0,0,0,0.4); cursor:pointer;">
+            <option value="COACH">COACH (Solo ver y evaluar)</option>
+            <option value="ADMIN">ADMINISTRADOR (Acceso Total)</option>
+          </select>
+        </div>
+      </div>
+      
+      <div id="new-user-error" style="color:#FF4D4D; font-size:13px; margin-top:16px; display:none; background:rgba(255,77,77,0.1); padding:10px; border-radius:8px; border:1px solid rgba(255,77,77,0.2);"></div>
+      <div id="new-user-success" style="color:#32D74B; font-size:13px; margin-top:16px; display:none; background:rgba(50,215,75,0.1); padding:10px; border-radius:8px; border:1px solid rgba(50,215,75,0.2);"></div>
+      
+      <button id="btn-new-user" class="btn-primary w-full" style="margin-top:32px; padding:16px; font-size:15px; font-weight:600; border-radius:12px; letter-spacing:0.5px;" onclick="submitNewUser()">
+        Registrar Usuario
+      </button>
+    </div>
+  </div>
+
   <script src="app_v411_final.js?v=4.14.8"></script>
+
+  <!-- ─── Botón de cerrar sesión (se muestra en topbar) ─── -->
+  <script>
+    // Inyectar botón logout en el topbar una vez que el DOM esté listo
+    document.addEventListener('DOMContentLoaded', function() {
+      const topbarRight = document.querySelector('.topbar-right');
+      if (topbarRight) {
+        const logoutBtn = document.createElement('button');
+        logoutBtn.className = 'btn-icon';
+        logoutBtn.title = 'Cerrar sesión';
+        logoutBtn.innerHTML = '⏻';
+        logoutBtn.style.cssText = 'color:#636375; font-size:16px; transition:color 0.2s;';
+        logoutBtn.onmouseover = function() { this.style.color = '#FF4D4D'; };
+        logoutBtn.onmouseout  = function() { this.style.color = '#636375'; };
+        logoutBtn.onclick = function() {
+          if (confirm('¿Cerrar sesión?')) window.imedLogout();
+        };
+        topbarRight.appendChild(logoutBtn);
+      }
+    });
+  </script>
+
+  </div><!-- /app-shell -->
+
+  <script src="auth.js"></script>
 </body>
 </html>

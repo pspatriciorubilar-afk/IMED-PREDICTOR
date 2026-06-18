@@ -264,10 +264,6 @@ class _EducationScreenState extends State<EducationScreen>
           text: 'La prueba de 30 estimulos dura ~4 minutos. Este volumen (PVT-B estandar) es vital para lograr precision matematica.',
         ),
         const SizedBox(height: 16),
-        _buildSectionLabel('INTERPRETAR TU RESULTADO'),
-        const SizedBox(height: 8),
-        _buildInterpretationTable(),
-        const SizedBox(height: 16),
         _buildFaqSection(),
       ],
     );
@@ -550,77 +546,6 @@ class _EducationScreenState extends State<EducationScreen>
     );
   }
 
-  Widget _buildInterpretationTable() {
-    final rows = [
-      ['< 220 ms', 'ÓPTIMO', const Color(0xFF69F0AE)],
-      ['220–280 ms', 'NORMAL', const Color(0xFFFFD54F)],
-      ['280–350 ms', 'ALERTA', const Color(0xFFFF8A65)],
-      ['> 350 ms', 'FATIGA CRÍTICA', const Color(0xFFFF5252)],
-    ];
-
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F1020),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Colors.white10)),
-            ),
-            child: Row(
-              children: const [
-                Expanded(
-                    child: Text('TR MEDIO',
-                        style: TextStyle(
-                            color: Colors.white38,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1))),
-                Expanded(
-                    child: Text('ESTADO',
-                        style: TextStyle(
-                            color: Colors.white38,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 1))),
-              ],
-            ),
-          ),
-          ...rows.map((row) => Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.white10)),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        row[0] as String,
-                        style: const TextStyle(color: Colors.white70, fontSize: 13),
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        row[1] as String,
-                        style: TextStyle(
-                          color: row[2] as Color,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              )),
-        ],
-      ),
-    );
-  }
 
   Widget _buildFaqSection() {
     final faqs = [

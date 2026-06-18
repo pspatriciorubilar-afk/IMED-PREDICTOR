@@ -42,10 +42,47 @@ const firebaseConfig = {
 
 try {
     if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-    db = firebase.firestore();
+    db   = firebase.firestore();
     auth = firebase.auth();
-    init();
+
+    // ─── Esperar autenticación antes de cargar datos de Firestore ───
+    auth.onAuthStateChanged(async function(user) {
+        if (user && !window._imedAppInitialized) {
+            // Leer claims del token para obtener el rol
+            try {
+                const idTokenResult = await user.getIdTokenResult();
+                window.currentUserRole = idTokenResult.claims.role || 'COACH';
+                // La cuenta demo oficial siempre es DEMO
+                if (user.email === 'demo@imedpredictor.com') window.currentUserRole = 'DEMO';
+                
+                applyRolePermissions();
+            } catch (err) {
+                console.error("Error reading role:", err);
+                window.currentUserRole = 'COACH';
+            }
+            
+            window._imedAppInitialized = true;
+            init();
+        }
+    });
 } catch (e) { console.error("Firebase Init Error:", e); }
+
+function applyRolePermissions() {
+    const role = window.currentUserRole;
+    console.log("IMED: User Role detected ->", role);
+    
+    // Si NO es ADMIN, ocultar pestaña Usuarios
+    if (role !== 'ADMIN') {
+        const navUsers = document.getElementById('nav-users');
+        if (navUsers) navUsers.style.display = 'none';
+    }
+    
+    // Si es DEMO, ocultar Ajustes y hacer que no pueda borrar
+    if (role === 'DEMO') {
+        const navSettings = document.getElementById('nav-settings');
+        if (navSettings) navSettings.style.display = 'none';
+    }
+}
 
 async function init() {
     // ─── Cargar Configuración del Sistema (Persistence) ───
@@ -82,14 +119,26 @@ function startAthletesOnboarding() {
 
 function startRealtimeListener() {
     if (unsubscribe) unsubscribe();
+    const rtDot = document.getElementById('rt-dot');
     unsubscribe = db.collection('Daily_Performance')
         .orderBy('timestamp', 'desc')
-        .limit(100)
+        .limit(500)  // Aumentado: soporta equipos grandes con historial extendido
         .onSnapshot(snap => {
-            allPerformance = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            // Filtrar IDs basura generados por el bug de race condition (athlete_pending_xxx)
+            // Estos registros nunca corresponden a un atleta real del sistema
+            allPerformance = snap.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .filter(p => {
+                    const aid = String(p.athleteId || '');
+                    return aid.length > 0 && !aid.startsWith('athlete_pending_');
+                });
+            if (rtDot) { rtDot.className = 'status-dot green'; }
             renderDashboard();
             renderSncTable();
             renderAthletesTable();
+        }, err => {
+            console.error('[LISTENER ERROR]', err);
+            if (rtDot) { rtDot.className = 'status-dot red'; }
         });
 }
 
@@ -248,12 +297,16 @@ function renderDashboard() {
         if (p.date === today) counts[ivn.level]++;
         const initials = (p.athleteName || 'AT').split(' ').map(w => w[0]).join('').slice(0, 2);
         const hasGps = p.gps && (p.gps.decel_high || p.gps.decel_z5 || p.gps.sprint_dist);
+        const isToday = p.date === today;
+        const safeName = (p.athleteName || p.athleteId || '').replace(/'/g, "\\'");
         return `
             <div class="athlete-card" onclick="openSncModal('${p.athleteId}')" style="position:relative">
                 <div class="athlete-avatar">${initials}<div class="risk-ring ${ivn.ringClass}"></div></div>
                 <div class="athlete-info">
                     <div class="athlete-name">${p.athleteName || p.athleteId}</div>
-                    <div class="athlete-pos" style="color: var(--text-2); font-size: 0.75rem;">📅 ${p.date ? p.date.split('-').reverse().join('-') : '—'}</div>
+                    <div class="athlete-pos" style="color: ${isToday ? 'var(--text-2)' : '#FF9F0A'}; font-size: 0.75rem;">
+                        📅 ${p.date ? p.date.split('-').reverse().join('-') : '—'}${isToday ? '' : ' · <strong>DATO ANTERIOR</strong>'}
+                    </div>
                 </div>
                 <div class="athlete-metrics">
                     <div class="metric-mini"><div class="val">${Math.round(p.iri)}</div><div class="lbl">IRI</div></div>
@@ -263,12 +316,42 @@ function renderDashboard() {
                         <div class="lbl">${hasGps ? 'INDICE IVN' : 'SIN GPS'}</div>
                     </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:10px">
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
                     <span class="risk-badge ${ivn.badgeClass}">${ivn.label}</span>
+                    ${!isToday ? `<button class="btn-mini" style="background:rgba(255,214,10,0.1);border:1px solid rgba(255,214,10,0.3);color:#FFD60A;font-size:10px;padding:3px 8px;" onclick="event.stopPropagation(); openManualEntry('${p.athleteId}','${safeName}','${today}')">+ Registrar Hoy</button>` : ''}
                     <button class="btn-delete" style="width:28px; height:28px; padding:0; display:flex; align-items:center; justify-content:center; border-radius:6px; background:rgba(255,69,58,0.1); border:1px solid rgba(255,69,58,0.2); color:#FF453A" onclick="event.stopPropagation(); deleteAthlete('${p.athleteId}')">🗑</button>
                 </div>
             </div>`;
     }).join('') : '<div class="empty-state">No hay evaluaciones registradas hoy.</div>';
+
+    // ── Atletas sin datos de hoy → mostrar sección de pendientes ────────────
+    const athleteIdsWithData = new Set(displayList.map(p => String(p.athleteId)));
+    const pending = gAthletesCache.filter(a => !athleteIdsWithData.has(String(a.id)));
+    if (pending.length > 0) {
+        const pendingHtml = pending.map(a => {
+            const safeName = (a.fullName || a.id).replace(/'/g, "\\'");
+            const initials = (a.fullName || 'AT').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+            return `
+            <div class="athlete-card" style="opacity:0.55; border:1px dashed var(--border)">
+                <div class="athlete-avatar" style="background:rgba(255,255,255,0.05)">${initials}</div>
+                <div class="athlete-info">
+                    <div class="athlete-name">${a.fullName || a.id}</div>
+                    <div class="athlete-pos" style="color:#636375; font-size:0.75rem;">Sin evaluacion hoy</div>
+                </div>
+                <div class="athlete-metrics">
+                    <div class="metric-mini"><div class="val" style="color:#636375">—</div><div class="lbl">IRI</div></div>
+                    <div class="metric-mini"><div class="val" style="color:#636375">—</div><div class="lbl">LAPSES</div></div>
+                    <div class="metric-mini"><div class="val" style="color:#636375">—</div><div class="lbl">IVN</div></div>
+                </div>
+                <button class="btn-mini" style="background:rgba(255,214,10,0.1);border:1px solid rgba(255,214,10,0.3);color:#FFD60A;font-size:11px;padding:4px 10px;" onclick="openManualEntry('${a.id}','${safeName}','${today}')">+ Registrar Manual</button>
+            </div>`;
+        }).join('');
+        container.innerHTML += `
+            <div style="width:100%;padding:12px 0 4px;font-size:10px;font-weight:700;letter-spacing:1px;color:#636375;text-transform:uppercase;">
+                SIN EVALUACION HOY
+            </div>
+            ${pendingHtml}`;
+    }
     
     if(document.getElementById('count-critical')) document.getElementById('count-critical').textContent = counts.RED;
     if(document.getElementById('count-warning')) document.getElementById('count-warning').textContent = counts.YELLOW;
@@ -785,18 +868,23 @@ async function deleteAthlete(id) {
     if (!confirm('¿Estás seguro de que deseas eliminar este deportista y todos sus registros? Esta acción no se puede deshacer.')) return;
     
     try {
-        // 1. Eliminar de la colección 'athletes'
-        await db.collection('athletes').doc(id).delete();
-        
-        // 2. Eliminar registros de 'performance' asociados
-        const snapshot = await db.collection('performance').where('athleteId', '==', id).get();
         const batch = db.batch();
-        snapshot.docs.forEach(doc => batch.delete(doc.ref));
-        await batch.commit();
+        // 1. Eliminar perfil del atleta
+        batch.delete(db.collection('athletes').doc(id));
         
+        // 2. Eliminar registros de Daily_Performance asociados (nombre correcto de colección)
+        const snapshot = await db.collection('Daily_Performance').where('athleteId', '==', id).get();
+        snapshot.docs.forEach(doc => batch.delete(doc.ref));
+        
+        // 3. Eliminar también por si el ID fue guardado como número
+        const idNum = parseInt(id);
+        if (!isNaN(idNum)) {
+            const snap2 = await db.collection('Daily_Performance').where('athleteId', '==', idNum).get();
+            snap2.docs.forEach(doc => batch.delete(doc.ref));
+        }
+
+        await batch.commit();
         alert('Deportista eliminado correctamente.');
-        // Recargar datos (los listeners de Firestore se encargarán del resto si están activos, 
-        // pero aquí forzamos una actualización de la UI si es necesario)
     } catch (e) {
         console.error("Error al eliminar deportista:", e);
         alert('Error al intentar eliminar el deportista.');
@@ -1256,6 +1344,119 @@ async function saveSettings() {
 
 function refreshData() { location.reload(); }
 
+// ─── Registro Manual de Evaluacion ───────────────────────────────────────────
+// Permite al entrenador ingresar resultados desde el dashboard cuando
+// la app movil no sincronizo los datos del deportista.
+
+function openManualEntry(athleteId, athleteName, date) {
+    const modal = document.getElementById('manual-entry-modal');
+    document.getElementById('manual-athlete-id').value    = athleteId;
+    document.getElementById('manual-athlete-title').textContent = `Registrar: ${athleteName}`;
+    document.getElementById('manual-date-picker').value  = date || new Date().toLocaleDateString('en-CA');
+    // Limpiar campos
+    ['manual-iri','manual-lapses','manual-latency','manual-sleep',
+     'manual-sleep-q','manual-stress','manual-fatigue'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const errEl = document.getElementById('manual-entry-error');
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+    modal.classList.remove('hidden');
+}
+
+function closeManualEntry(e) {
+    if (!e || e.target.id === 'manual-entry-modal') {
+        document.getElementById('manual-entry-modal').classList.add('hidden');
+    }
+}
+
+async function submitManualEntry() {
+    const athleteId   = document.getElementById('manual-athlete-id').value;
+    const date        = document.getElementById('manual-date-picker').value;
+    const iri         = parseInt(document.getElementById('manual-iri').value);
+    const lapses      = parseInt(document.getElementById('manual-lapses').value || '0');
+    const meanLatency = parseInt(document.getElementById('manual-latency').value || '0');
+    const sleepHours  = parseFloat(document.getElementById('manual-sleep').value || '0') || null;
+    const sleepQuality= parseInt(document.getElementById('manual-sleep-q').value || '0') || null;
+    const stressLevel = parseInt(document.getElementById('manual-stress').value || '0') || null;
+    const fatigueLevel= parseInt(document.getElementById('manual-fatigue').value || '0') || null;
+
+    const errEl = document.getElementById('manual-entry-error');
+
+    if (!athleteId || !date) {
+        errEl.textContent = 'Error interno: atleta o fecha no identificados.';
+        errEl.style.display = 'block';
+        return;
+    }
+    if (isNaN(iri) || iri < 0 || iri > 100) {
+        errEl.textContent = 'El IRI debe ser un numero entre 0 y 100.';
+        errEl.style.display = 'block';
+        return;
+    }
+
+    const btn = document.getElementById('btn-manual-submit');
+    btn.disabled = true;
+    btn.textContent = 'Registrando...';
+    errEl.style.display = 'none';
+
+    try {
+        const fn = firebase.functions().httpsCallable('manual_register');
+        const res = await fn({
+            athleteId, date, iri, lapses, meanLatency,
+            sleepHours, sleepQuality, stressLevel, fatigueLevel
+        });
+
+        if (res.data.status === 'success') {
+            document.getElementById('manual-entry-modal').classList.add('hidden');
+            showToast('success', '✓ Registrado', res.data.message);
+            // El listener de Firestore actualizara el dashboard automaticamente
+        } else {
+            throw new Error(res.data.message || 'Error desconocido');
+        }
+    } catch(e) {
+        errEl.textContent = `Error: ${e.message}`;
+        errEl.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '⚡ Registrar Evaluacion en Dashboard';
+    }
+}
+
+// ─── Recuperación de Datos Perdidos ───
+// Llama a force_sync_athlete por cada atleta para sincronizar
+// mediciones que no llegaron al dashboard (ej: fallo del worker Ex-Gaussiano)
+async function recoverMissingData() {
+    const dateInput = prompt(
+        'Ingresa la fecha a recuperar (formato YYYY-MM-DD):',
+        new Date(Date.now() - 86400000).toLocaleDateString('en-CA') // ayer por defecto
+    );
+    if (!dateInput || !/^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+        return alert('Formato de fecha inválido. Usa YYYY-MM-DD (ej: 2026-06-17)');
+    }
+
+    if (!gAthletesCache.length) return alert('No hay atletas cargados. Espera un momento y vuelve a intentar.');
+
+    const btn = document.getElementById('btn-recover');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Recuperando...'; }
+
+    const forceFn = firebase.functions().httpsCallable('force_sync_athlete');
+    let ok = 0, fail = 0;
+
+    for (const athlete of gAthletesCache) {
+        try {
+            const res = await forceFn({ athleteId: athlete.id, date: dateInput });
+            if (res.data.status === 'success') ok++;
+            else fail++;
+        } catch (e) {
+            console.warn(`[RECOVER] Fallo para ${athlete.fullName}:`, e.message);
+            fail++;
+        }
+    }
+
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Recuperar Datos'; }
+    alert(`Recuperación completada.\n✅ Sincronizados: ${ok}\n⚠️ Sin datos para esa fecha: ${fail}`);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     document.documentElement.style.setProperty('overflow-y', 'auto', 'important');
     document.body.style.setProperty('overflow-y', 'auto', 'important');
@@ -1268,6 +1469,8 @@ window.addEventListener('click', (e) => {
     const athleteModal = document.getElementById('athlete-modal');
     const profileModal = document.getElementById('athlete-profile-modal');
     const sncModal = document.getElementById('snc-modal');
+    const newUserModal = document.getElementById('new-user-modal');
+    const usersPanelModal = document.getElementById('users-panel-modal');
     
     if (e.target === athleteModal) {
         athleteModal.classList.add('hidden');
@@ -1278,4 +1481,152 @@ window.addEventListener('click', (e) => {
     if (e.target === sncModal) {
         sncModal.classList.add('hidden');
     }
+    if (e.target === newUserModal) {
+        newUserModal.classList.add('hidden');
+    }
+    if (e.target === usersPanelModal) {
+        usersPanelModal.classList.add('hidden');
+    }
 });
+
+// ==============================================================================
+// USER MANAGEMENT (RBAC PANEL)
+// ==============================================================================
+
+function openUsersPanelModal() {
+    document.getElementById('users-panel-modal').classList.remove('hidden');
+    loadDashboardUsers();
+}
+
+function closeUsersPanelModal() {
+    document.getElementById('users-panel-modal').classList.add('hidden');
+}
+
+async function loadDashboardUsers() {
+    const tbody = document.getElementById('users-list-body');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px"><span class="kpi-spinner"></span> Cargando usuarios...</td></tr>';
+    
+    try {
+        const fn = firebase.functions().httpsCallable('list_dashboard_users');
+        const res = await fn();
+        
+        if (res.data.status === 'success') {
+            const users = res.data.users || [];
+            tbody.innerHTML = '';
+            
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:20px">No hay usuarios</td></tr>';
+                return;
+            }
+            
+            users.forEach(u => {
+                const date = new Date(u.creationTime).toLocaleDateString('es-CL');
+                let roleBadge = '';
+                if (u.role === 'ADMIN') roleBadge = '<span class="badge blue-badge">ADMIN</span>';
+                else if (u.role === 'DEMO') roleBadge = '<span class="badge purple-badge">DEMO</span>';
+                else roleBadge = '<span class="badge green-badge">COACH</span>';
+                
+                const isDemo = u.email === 'demo@imedpredictor.com';
+                const deleteBtn = isDemo ? 
+                    `<button class="btn-icon" style="opacity:0.3; cursor:not-allowed" title="Demo inborrable">🗑</button>` :
+                    `<button class="btn-icon" style="color:#FF4D4D" title="Revocar Acceso" onclick="deleteDashboardUser('${u.uid}', '${u.email}')">🗑</button>`;
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight:500; color:#fff">${u.email}</td>
+                    <td>${roleBadge}</td>
+                    <td style="color:var(--text-dim)">${date}</td>
+                    <td>${deleteBtn}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        } else {
+            throw new Error(res.data.message);
+        }
+    } catch(e) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:#FF4D4D">Error: ${e.message}</td></tr>`;
+    }
+}
+
+function openNewUserModal() {
+    document.getElementById('new-user-email').value = '';
+    document.getElementById('new-user-pass').value = '';
+    document.getElementById('new-user-error').style.display = 'none';
+    document.getElementById('new-user-success').style.display = 'none';
+    
+    // Ocultar temporalmente el panel principal para evitar modales superpuestos,
+    // o simplemente mostrarlo por encima si el z-index lo permite.
+    document.getElementById('users-panel-modal').classList.add('hidden');
+    document.getElementById('new-user-modal').classList.remove('hidden');
+}
+
+function closeNewUserModal() {
+    document.getElementById('new-user-modal').classList.add('hidden');
+    // Restaurar panel principal
+    document.getElementById('users-panel-modal').classList.remove('hidden');
+}
+
+async function submitNewUser() {
+    const email = document.getElementById('new-user-email').value.trim();
+    const pass = document.getElementById('new-user-pass').value;
+    const role = document.getElementById('new-user-role').value;
+    const btn = document.getElementById('btn-new-user');
+    const errEl = document.getElementById('new-user-error');
+    const sucEl = document.getElementById('new-user-success');
+    
+    errEl.style.display = 'none';
+    sucEl.style.display = 'none';
+    
+    if (!email || pass.length < 6) {
+        errEl.textContent = 'El email es obligatorio y la contraseña debe tener min 6 caracteres.';
+        errEl.style.display = 'block';
+        return;
+    }
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="kpi-spinner"></span> Creando...';
+    
+    try {
+        const fn = firebase.functions().httpsCallable('create_dashboard_user');
+        const res = await fn({ email, password: pass, role });
+        
+        if (res.data.status === 'success') {
+            sucEl.textContent = '✅ Usuario creado exitosamente.';
+            sucEl.style.display = 'block';
+            setTimeout(() => {
+                closeNewUserModal();
+                loadDashboardUsers();
+            }, 1500);
+        } else {
+            throw new Error(res.data.message);
+        }
+    } catch (e) {
+        errEl.textContent = `Error: ${e.message}`;
+        errEl.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Crear Usuario';
+    }
+}
+
+async function deleteDashboardUser(uid, email) {
+    if (!confirm(`¿Estás seguro de que deseas REVOCAR EL ACCESO a ${email}?`)) return;
+    
+    try {
+        const fn = firebase.functions().httpsCallable('delete_dashboard_user');
+        const res = await fn({ uid });
+        
+        if (res.data.status === 'success') {
+            showToast('success', 'Usuario Eliminado', `El acceso de ${email} ha sido revocado.`);
+            loadDashboardUsers();
+        } else {
+            throw new Error(res.data.message);
+        }
+    } catch (e) {
+        alert(`Error al eliminar: ${e.message}`);
+    }
+}
+
+
