@@ -70,7 +70,9 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
     Returns:
         dict con μ, σ, τ y métricas de calidad del ajuste, o None si falla.
     """
-    trials_arr = np.array([t for t in trials if 120 <= t <= 1000], dtype=float)
+    # Ajuste de élite: Límite inferior 100ms (límite fisiológico real).
+    # 120ms descartaba tiempos excepcionales válidos.
+    trials_arr = np.array([t for t in trials if 100 <= t <= 1000], dtype=float)
     n = len(trials_arr)
 
     if n < 20:

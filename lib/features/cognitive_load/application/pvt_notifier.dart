@@ -103,9 +103,10 @@ class PvtNotifier extends StateNotifier<PvtTestState> {
       _stopwatch.stop();
       final reaction = _stopwatch.elapsedMilliseconds;
       
-      // Filtros de Ingeniería de Sensores (SNC v2.0)
-      if (reaction < 120) {
-        // Falso arranque por reflejo espinal no consciente
+      // Filtros de Ingeniería de Sensores (SNC v2.2)
+      // Ajuste de élite: 100ms es el límite fisiológico para reacción visual.
+      if (reaction < 100) {
+        // Falso arranque por anticipación (físicamente imposible reaccionar < 100ms)
         _stimulusTimer?.cancel();
         state = state.copyWith(
           status: PvtTestStatus.falseStart,
