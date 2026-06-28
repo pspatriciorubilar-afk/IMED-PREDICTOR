@@ -252,10 +252,19 @@ def compute_zscores(db, athlete_id: str, today_str: str,
         }
 
         # ── Z-score de τ ──
-        if len(tau_history) >= 8:
+        if len(tau_history) >= 3:
             tau_mean = float(np.mean(tau_history))
-            tau_sd   = float(np.std(tau_history, ddof=1))
-            # Floor standard deviation para prevenir varianza minúscula
+            n = len(tau_history)
+            sample_var = float(np.var(tau_history, ddof=1)) if n > 1 else 0.0
+            
+            # Estimador Bayesiano para estabilizar varianza en muestras pequeñas (Cold Start)
+            prior_var = 15.0 ** 2  # Varianza poblacional esperada para τ
+            prior_n = 5            # Peso del prior (equivale a 5 observaciones)
+            
+            posterior_var = ((n - 1) * sample_var + prior_n * prior_var) / ((n - 1) + prior_n)
+            tau_sd = math.sqrt(posterior_var)
+            
+            # Floor standard deviation de seguridad clínica
             tau_sd = max(tau_sd, 5.0) 
             
             if tau_today is not None:
@@ -266,12 +275,21 @@ def compute_zscores(db, athlete_id: str, today_str: str,
             log.info(f"  τ Z-score: {result.get('tau_zscore')}  (base μ={tau_mean:.1f}ms SD={tau_sd:.1f}ms, n={len(tau_history)})")
         else:
             result["tau_baseline_status"] = "INSUFFICIENT_DENSITY"
-            log.info(f"  Insuficiente historial τ para Z-score ({len(tau_history)}/8 min)")
+            log.info(f"  Insuficiente historial τ para Z-score ({len(tau_history)}/3 min)")
 
         # ── Z-score de Wellness ──
-        if wellness_today is not None and len(wellness_history) >= 8:
+        if wellness_today is not None and len(wellness_history) >= 3:
             w_mean = float(np.mean(wellness_history))
-            w_sd   = float(np.std(wellness_history, ddof=1))
+            n_w = len(wellness_history)
+            sample_var_w = float(np.var(wellness_history, ddof=1)) if n_w > 1 else 0.0
+            
+            # Estimador Bayesiano para Wellness
+            prior_var_w = 10.0 ** 2 # Varianza poblacional esperada para Wellness
+            prior_n_w = 5
+            
+            posterior_var_w = ((n_w - 1) * sample_var_w + prior_n_w * prior_var_w) / ((n_w - 1) + prior_n_w)
+            w_sd = math.sqrt(posterior_var_w)
+            
             w_sd = max(w_sd, 2.0) # Floor variance para wellness
             
             result["wellness_zscore"] = round((wellness_today - w_mean) / w_sd, 3)
