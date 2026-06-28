@@ -203,14 +203,19 @@ function calculateWellness(p) {
     const q = w.sleepQuality ?? p.sleep_quality ?? 5;
     const s = w.stressLevel ?? p.stress ?? 1;
     const f = w.fatigueLevel ?? p.fatigue ?? 1;
-    const r = w.sorenessLevel ?? p.soreness ?? 1;
+    // soreness eliminado del protocolo (no se recoge en esta versión)
 
-    const hScore = (Math.min(8, h) / 8) * 20;
-    const qScore = (q / 5) * 20;
-    const sScore = ((6 - s) / 5) * 20;
-    const fScore = ((6 - f) / 5) * 20;
-    const rScore = ((6 - r) / 5) * 20;
-    return Math.round(hScore + qScore + sScore + fScore + rScore);
+    // Pesos basados en literatura de ciencias del deporte:
+    //   sleepHours   30 pts — mayor predictor cognitivo (Watson et al., 2015)
+    //   sleepQuality 25 pts — calidad sueño (Lastella et al., 2020)
+    //   stressLevel  25 pts — predictor primario bienestar (Hooper & Mackinnon, 1995)
+    //   fatigueLevel 20 pts — marcador complementario (Saw et al., 2016)
+    // DEBE SER IDÉNTICA a pvt_exgauss_worker.py y snc_engine.dart
+    const hScore = (Math.min(8, h) / 8) * 30;  // 30 pts
+    const qScore = (q / 5) * 25;               // 25 pts
+    const sScore = ((6 - s) / 5) * 25;         // 25 pts (inv.)
+    const fScore = ((6 - f) / 5) * 20;         // 20 pts (inv.)
+    return Math.round(hScore + qScore + sScore + fScore);
 }
 
 function getUnifiedStatus(p) {
@@ -249,6 +254,10 @@ function getUnifiedStatus(p) {
     const optIri = THRESH.iriOptimal || 85;
     const maxLapses = THRESH.lapses || 2;
 
+    // UMBRALES IVN [PROVISIONAL] — ivn > 30 (RED) e ivn > 25 (YELLOW)
+    // Derivados empíricamente desde datos de campo iniciales.
+    // Requieren calibración formal (análisis ROC sobre outcomes de lesión)
+    // cuando se disponga de historial suficiente. Ref: Gabbett (2016) — ACWR.
     if (iriFinal < critIri || lapses >= maxLapses || ivn > 30) { 
         level = 'RED'; label = 'RIESGO CRÍTICO'; 
     }
@@ -298,7 +307,11 @@ function renderDashboard() {
     allPerformance.forEach(p => { 
         if (p.date === today) todayEvalsCount++;
         const aid = String(p.athleteId || "").trim();
-        if (aid && !latest[aid]) latest[aid] = p;
+        if (!aid) return;
+        // Conservar el registro con la fecha MÁS RECIENTE por atleta
+        if (!latest[aid] || (p.date || '') > (latest[aid].date || '')) {
+            latest[aid] = p;
+        }
     });
     
     const latestList = Object.values(latest);
@@ -527,8 +540,11 @@ function renderSncTable() {
 
     list.innerHTML = filteredAthletes.map(a => {
         const records = allPerformance.filter(p => String(p.athleteId).trim() === String(a.id).trim());
-        const p = records[0]; // El más reciente (está ordenado desc)
+        // Ordenar por fecha REAL (campo 'date') desc para obtener el registro más reciente
+        const sortedRecords = [...records].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        const p = sortedRecords[0]; // El más reciente por fecha, no por timestamp Firestore
         const snc = p ? calcSNC(p) : { level: 'GRAY', label: 'PENDIENTE', badgeClass: 'badge-gray' };
+
         
         // Fix Hoy: Buscar si alguno de los registros es de hoy
         const isDone = records.some(x => x.date === today);
@@ -570,8 +586,10 @@ function renderSncTable() {
 
 function calcTendency(records) {
     if (records.length < 2) return { label: 'ESTABLE', class: 'badge-green' };
-    const latest = records[0].iri || 0;
-    const prev = records[1].iri || 0;
+    // Ordenar por fecha desc para asegurar que records[0] es el más reciente
+    const sorted = [...records].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const latest = sorted[0].iri || 0;
+    const prev = sorted[1].iri || 0;
     const diff = latest - prev;
     if (diff > 5) return { label: 'MEJORA', class: 'badge-green' };
     if (diff < -5) return { label: 'CAÍDA', class: 'badge-red' };
@@ -581,12 +599,15 @@ function calcTendency(records) {
 function calcLatencyDev(p, records) {
     if (!p || records.length < 3) return { label: 'NORMAL', class: 'badge-green' };
     const current = p.pvt?.metrics?.meanLatency ?? p.avg_reaction ?? 280;
-    const history = records.slice(1, 10).map(r => r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? 280);
+    // Ordenar para asegurar que slice(1,10) son los registros anteriores reales
+    const sorted = [...records].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const history = sorted.slice(1, 10).map(r => r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? 280);
     const avg = history.reduce((a,b)=>a+b,0) / history.length;
     if (current > avg * 1.15) return { label: 'ALTA', class: 'badge-red' };
     if (current > avg * 1.05) return { label: 'LEVE', class: 'badge-yellow' };
     return { label: 'NORMAL', class: 'badge-green' };
 }
+
 
 function renderAthletesTable(f = '') {
     const container = document.getElementById('athletes-grouped-container');
@@ -944,8 +965,11 @@ async function editAthleteNotes(id) {
 
 function openSncModal(id) {
     const a = gAthletesCache.find(x => x.id === id);
-    const p = allPerformance.find(x => String(x.athleteId).trim() === String(id).trim());
+    // Buscar el registro con la fecha MÁS RECIENTE (campo 'date'), no el primero por timestamp de Firestore
+    const athleteRecords = allPerformance.filter(x => String(x.athleteId).trim() === String(id).trim());
+    const p = athleteRecords.sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
     if (!a || !p) return;
+
     
     const snc = calcSNC(p);
     const wellness = calculateWellness(p);
@@ -986,7 +1010,8 @@ function openSncModal(id) {
             </div>
         </div>
         ${renderExGaussPanel(p)}
-        <div class="prescription-box">
+        ${renderHistoricalDataTable(a.id)}
+        <div class="prescription-box" style="margin-top:20px">
             <div class="prescription-title">⚡ DIAGNÓSTICO INTEGRADO NA-GPS — PRESCRIPCIÓN</div>
             <div class="prescription-text">
                 <strong>Estado: ${snc.label}.</strong> Disponibilidad Neural Integrada: <strong>${Math.round(snc.na)}%</strong>. 
@@ -1004,7 +1029,7 @@ function openSncModal(id) {
                     • <strong>Algoritmo IVN:</strong> Resultado de cruzar la CM y el ACWR contra la Disponibilidad Neural para predecir fatiga neuro-mecánica.
                 </div>
             </div>
-            <button class="btn-primary w-full" style="margin-top:16px; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue)" onclick="viewAthleteTrends('${a.id}')">📊 Ver Tendencias Biométricas</button>
+            <button class="btn-primary w-full" style="margin-top:16px; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue)" onclick="viewAthleteTrends('${a.id}')">📊 Ver Tendencias en Gráficos</button>
         </div>`;
     document.getElementById('snc-modal').classList.remove('hidden');
 }
@@ -1128,6 +1153,190 @@ function renderExGaussPanel(p) {
 function closeSncModal() { document.getElementById('snc-modal').classList.add('hidden'); }
 function closeAthleteProfile() { document.getElementById('athlete-profile-modal').classList.add('hidden'); }
 
+/**
+ * ─── Tabla de Historial Ex-Gaussiano ───────────────────────────────────────────
+ * Genera un panel con tabla completa de registros históricos por día:
+ * Fecha | IRI | μ | σ | τ | τ Z-Score | Wellness | Wellness Z-Score | Estado
+ */
+function renderHistoricalDataTable(athleteId) {
+    const records = allPerformance
+        .filter(p => String(p.athleteId).trim() === String(athleteId).trim())
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    if (!records.length) return '';
+
+    const rows = records.map(r => {
+        const st = getUnifiedStatus(r);
+        const aa = r.advanced_analysis || {};
+        const mu      = aa.mu_ms    != null ? aa.mu_ms.toFixed(1)    : '—';
+        const sigma   = aa.sigma_ms != null ? aa.sigma_ms.toFixed(1) : '—';
+        const tau     = aa.tau_ms   != null ? aa.tau_ms.toFixed(1)   : '—';
+        const tauZ    = aa.tau_zscore != null ? Number(aa.tau_zscore).toFixed(2) : '—';
+        const wVal    = calculateWellness(r);
+        const wellness = wVal != null ? wVal : '—';
+        const wZ      = aa.wellness_zscore != null ? Number(aa.wellness_zscore).toFixed(2) : '—';
+        const lapses  = r.pvt?.metrics?.lapses ?? r.lapses ?? '—';
+        const latency = r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? '—';
+
+        // Colores semáforo por fila
+        const iriColor = st.level === 'RED' ? '#FF4D4D' : st.level === 'YELLOW' ? '#FFD60A' : '#32D74B';
+        const tauZColor = tauZ !== '—'
+            ? (Number(tauZ) > 1.5 ? '#FF4D4D' : Number(tauZ) > 1.0 ? '#FFD60A' : '#32D74B')
+            : '#636375';
+        const wZColor = wZ !== '—'
+            ? (Number(wZ) < -1.2 ? '#FF4D4D' : Number(wZ) < -0.8 ? '#FFD60A' : '#32D74B')
+            : '#636375';
+        const wellnessColor = wellness !== '—'
+            ? (wellness < 60 ? '#FF4D4D' : wellness < 75 ? '#FFD60A' : '#32D74B')
+            : '#636375';
+
+        // Badge de estado compacto
+        const stateBadgeStyle = st.level === 'RED'
+            ? 'background:rgba(255,77,77,0.15); color:#FF4D4D; border:1px solid rgba(255,77,77,0.3)'
+            : st.level === 'YELLOW'
+            ? 'background:rgba(255,214,10,0.15); color:#FFD60A; border:1px solid rgba(255,214,10,0.3)'
+            : st.level === 'GRAY'
+            ? 'background:rgba(255,255,255,0.05); color:#636375; border:1px solid rgba(255,255,255,0.1)'
+            : 'background:rgba(50,215,75,0.15); color:#32D74B; border:1px solid rgba(50,215,75,0.3)';
+
+        const dateFormatted = r.date ? r.date.split('-').reverse().join('/') : '—';
+
+        return `
+            <tr class="hist-row">
+                <td class="hist-td mono-cell" style="color:#9A9AAF; white-space:nowrap">${dateFormatted}</td>
+                <td class="hist-td" style="text-align:center">
+                    <span style="font-size:13px; font-weight:800; color:${iriColor}">${Math.round(st.iri)}</span>
+                </td>
+                <td class="hist-td" style="text-align:center; color:#9A9AAF">${lapses}</td>
+                <td class="hist-td" style="text-align:center">
+                    <span style="font-size:12px; font-weight:700; color:#00E5FF">${mu !== '—' ? mu + '<span style="font-size:9px;opacity:0.6">ms</span>' : '—'}</span>
+                </td>
+                <td class="hist-td" style="text-align:center">
+                    <span style="font-size:12px; font-weight:700; color:#FF9F0A">${sigma !== '—' ? sigma + '<span style="font-size:9px;opacity:0.6">ms</span>' : '—'}</span>
+                </td>
+                <td class="hist-td" style="text-align:center">
+                    <span style="font-size:12px; font-weight:700; color:${tauZColor}">${tau !== '—' ? tau + '<span style="font-size:9px;opacity:0.6">ms</span>' : '—'}</span>
+                </td>
+                <td class="hist-td" style="text-align:center">
+                    <span style="font-size:12px; font-weight:800; color:${tauZColor}">${tauZ}</span>
+                </td>
+                <td class="hist-td" style="text-align:center">
+                    <span style="font-size:12px; font-weight:700; color:${wellnessColor}">${wellness !== '—' ? wellness + '<span style="font-size:9px;opacity:0.6">/100</span>' : '—'}</span>
+                </td>
+                <td class="hist-td" style="text-align:center">
+                    <span style="font-size:12px; font-weight:800; color:${wZColor}">${wZ}</span>
+                </td>
+                <td class="hist-td" style="text-align:center">
+                    <span style="font-size:9px; font-weight:700; padding:3px 8px; border-radius:99px; ${stateBadgeStyle}">${st.label}</span>
+                </td>
+            </tr>`;
+    }).join('');
+
+    return `
+    <div class="hist-panel" style="margin-top:20px">
+        <!-- Header -->
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
+            <div>
+                <div style="font-size:9px; font-weight:700; letter-spacing:2px; color:#636375; margin-bottom:4px">HISTORIAL COMPLETO</div>
+                <div style="font-size:13px; font-weight:700; color:#fff">📋 Evolución Ex-Gaussiana por Día <span style="font-size:11px; color:#636375; font-weight:400">(${records.length} sesiones registradas)</span></div>
+            </div>
+            <div style="display:flex; gap:8px">
+                <button onclick="exportHistoricalCSV('${athleteId}')"
+                    style="padding:6px 14px; background:rgba(0,229,255,0.1); border:1px solid rgba(0,229,255,0.25); color:#00E5FF;
+                           border-radius:8px; font-size:10px; font-weight:700; cursor:pointer; letter-spacing:0.5px; font-family:var(--font)">
+                    ⬇ CSV
+                </button>
+            </div>
+        </div>
+
+        <!-- Leyenda de columnas clave -->
+        <div style="display:flex; gap:16px; margin-bottom:12px; flex-wrap:wrap">
+            <div style="font-size:10px; color:#636375"><span style="color:#00E5FF; font-weight:700">μ</span> Velocidad Motora</div>
+            <div style="font-size:10px; color:#636375"><span style="color:#FF9F0A; font-weight:700">σ</span> Consistencia</div>
+            <div style="font-size:10px; color:#636375"><span style="color:#BF5AF2; font-weight:700">τ</span> Fatiga Central</div>
+            <div style="font-size:10px; color:#636375"><span style="color:#32D74B; font-weight:700">Z</span> = desviación vs. media personal 21d</div>
+        </div>
+
+        <!-- Tabla scrollable -->
+        <div style="overflow-x:auto; border-radius:10px; border:1px solid rgba(255,255,255,0.06); background:rgba(0,0,0,0.2)">
+            <table style="width:100%; border-collapse:collapse; min-width:760px">
+                <thead>
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
+                        <th class="hist-th">FECHA</th>
+                        <th class="hist-th" style="text-align:center">IRI</th>
+                        <th class="hist-th" style="text-align:center">LAPSES</th>
+                        <th class="hist-th" style="text-align:center; color:#00E5FF">μ (ms)</th>
+                        <th class="hist-th" style="text-align:center; color:#FF9F0A">σ (ms)</th>
+                        <th class="hist-th" style="text-align:center; color:#BF5AF2">τ (ms)</th>
+                        <th class="hist-th" style="text-align:center; color:#BF5AF2">τ Z-Score</th>
+                        <th class="hist-th" style="text-align:center; color:#32D74B">WELLNESS</th>
+                        <th class="hist-th" style="text-align:center; color:#32D74B">W. Z-Score</th>
+                        <th class="hist-th" style="text-align:center">ESTADO</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+
+        <!-- Nota técnica -->
+        <div style="margin-top:10px; font-size:10px; color:#636375; font-style:italic; line-height:1.5">
+            * Z-Scores calculados sobre ventana móvil de 21 días. Valores τ Z > 1.5 = alerta fatiga SNC. Wellness Z < −1.2 = alerta recuperación insuficiente.
+        </div>
+    </div>`;
+}
+
+/**
+ * Exporta el historial del atleta como archivo CSV
+ */
+function exportHistoricalCSV(athleteId) {
+    const a = gAthletesCache.find(x => x.id === athleteId);
+    const records = allPerformance
+        .filter(p => String(p.athleteId).trim() === String(athleteId).trim())
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    if (!records.length) return alert('No hay datos históricos para exportar.');
+
+    const headers = ['Fecha','IRI','Lapses','Latencia Media (ms)','μ (ms)','σ (ms)','τ (ms)','τ Z-Score','Wellness (/100)','Wellness Z-Score','Estado'];
+    const csvRows = [headers.join(',')];
+
+    records.forEach(r => {
+        const st  = getUnifiedStatus(r);
+        const aa  = r.advanced_analysis || {};
+        const row = [
+            r.date || '',
+            Math.round(st.iri),
+            r.pvt?.metrics?.lapses ?? r.lapses ?? '',
+            r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? '',
+            aa.mu_ms    != null ? aa.mu_ms.toFixed(1)    : '',
+            aa.sigma_ms != null ? aa.sigma_ms.toFixed(1) : '',
+            aa.tau_ms   != null ? aa.tau_ms.toFixed(1)   : '',
+            aa.tau_zscore      != null ? Number(aa.tau_zscore).toFixed(3)      : '',
+            calculateWellness(r) != null ? calculateWellness(r) : '',
+            aa.wellness_zscore  != null ? Number(aa.wellness_zscore).toFixed(3) : '',
+            st.label
+        ];
+        csvRows.push(row.join(','));
+    });
+
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `IMED_Historial_${(a?.fullName || athleteId).replace(/\s+/g, '_')}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+}
+
+function showToast(type, title, sub) {
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.innerHTML = `<div class="toast-icon">${type === 'success' ? '✓' : '⚠'}</div><div class="toast-text"><div class="toast-title">${title}</div><div class="toast-sub">${sub}</div></div>`;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4000);
+}
+
 // ─── Trends & Reports ───
 function loadAthleteReport(athleteId) {
     const container = document.getElementById('report-container');
@@ -1137,7 +1346,15 @@ function loadAthleteReport(athleteId) {
         advancedContainer.innerHTML = '';
         return; 
     }
-    const records = allPerformance.filter(p => String(p.athleteId).trim() === String(athleteId).trim()).slice(0, 14).reverse();
+    let records = allPerformance.filter(p => String(p.athleteId).trim() === String(athleteId).trim());
+    // Ordenar por fecha real (campo 'date') de forma ascendente para que el gráfico
+    // muestre la cronología correcta, independientemente del timestamp de Firestore.
+    records.sort((a, b) => {
+        const da = a.date || (a.id ? a.id.split('_').slice(1).join('_') : '') || '';
+        const db2 = b.date || (b.id ? b.id.split('_').slice(1).join('_') : '') || '';
+        return da.localeCompare(db2);
+    });
+    records = records.slice(-14); // Últimos 14 días en orden cronológico
     if (!records.length) { 
         container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>Sin registros vinculados</p></div>'; 
         advancedContainer.innerHTML = '';
@@ -1211,6 +1428,18 @@ function loadAthleteReport(athleteId) {
             }
         }
     }));
+
+    // ── Tabla Histórica Completa en la sección de Reportes ──
+    advancedContainer.innerHTML = `
+        <div class="report-card" style="border-left:3px solid #BF5AF2; margin-top:10px">
+            <div class="report-card-title" style="color:#BF5AF2">📋 TABLA HISTÓRICA COMPLETA — ANÁLISIS EX-GAUSSIANO + WELLNESS</div>
+            <p style="font-size:12px; color:var(--text-2); margin-bottom:16px; line-height:1.5">
+                Historial completo de sesiones con todos los biomarcadores: μ (velocidad motora), σ (consistencia), τ (fatiga central),
+                Z-scores de τ y Wellness — ordenados del más reciente al más antiguo.
+                Puedes exportar todos los datos en formato CSV haciendo click en el botón CSV.
+            </p>
+            ${renderHistoricalDataTable(athleteId)}
+        </div>`;
 }
 
 function createMiniChart(id, labels, data, color, min, max) {
@@ -1544,9 +1773,15 @@ async function loadDashboardUsers() {
                 const teamBadge = u.team ? `<span class="badge badge-gray">${u.team}</span>` : `<span class="badge" style="background:rgba(255,255,255,0.1); color:#A1A1AA">Todas</span>`;
                 
                 const isDemo = u.email === 'demo@imedpredictor.com';
-                const deleteBtn = isDemo ? 
-                    `<button class="btn-icon" style="opacity:0.3; cursor:not-allowed" title="Demo inborrable">🗑</button>` :
-                    `<button class="btn-icon" style="color:#FF4D4D" title="Revocar Acceso" onclick="deleteDashboardUser('${u.uid}', '${u.email}')">🗑</button>`;
+                const isMainAdmin = u.email === 'ps.patriciorubilar@gmail.com';
+                let deleteBtn = '';
+                if (isDemo) {
+                    deleteBtn = `<button class="btn-icon" style="opacity:0.3; cursor:not-allowed" title="Demo inborrable">🗑</button>`;
+                } else if (isMainAdmin) {
+                    deleteBtn = `<button class="btn-icon" style="opacity:0.3; cursor:not-allowed" title="Admin principal protegido">🗑</button>`;
+                } else {
+                    deleteBtn = `<button class="btn-icon" style="color:#FF4D4D" title="Revocar Acceso" onclick="deleteDashboardUser('${u.uid}', '${u.email}')">🗑</button>`;
+                }
                 
                 const editTeamBtn = isDemo || u.role === 'ADMIN' ? 
                     '' : 

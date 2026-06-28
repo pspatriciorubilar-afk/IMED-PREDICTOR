@@ -29,6 +29,42 @@ let selectedGpsBrand = 'auto'; // 'auto' = detección semántica pura
 // ═══════════════════════════════════════════
 // IVN ENGINE
 // ═══════════════════════════════════════════
+
+/**
+ * Resuelve el nivel de riesgo de un registro de Daily_Performance.
+ * PRIORIDAD: risk_level del backend (IVN numérico real, calculado por Cloud Function).
+ * FALLBACK: lógica simplificada frontend (solo si no hay dato del servidor).
+ * Esto garantiza coherencia cuando el backend marca RED pero el frontend calcularía GREEN.
+ * Ref. auditoría científica C-01 / Corrección 6.
+ */
+function resolveRiskLevel(p) {
+  // 1. Priorizar risk_level del backend (IVN + ACWR + Z-scores)
+  if (p.risk_level) {
+    const lvl = p.risk_level; // 'RED' | 'YELLOW' | 'GREEN'
+    const labelMap = {
+      RED:    { label: p.ivn_label || 'RIESGO CRÍTICO',   action: p.action || 'Revisar carga', badgeClass: 'badge-red',    ringClass: 'ring-red',    btnClass: 'red'    },
+      YELLOW: { label: p.ivn_label || 'ADVERTENCIA',       action: p.action || 'Monitorear',    badgeClass: 'badge-yellow', ringClass: 'ring-yellow', btnClass: 'yellow' },
+      GREEN:  { label: p.ivn_label || 'ADAPTACIÓN ÓPTIMA', action: p.action || 'Mantener',      badgeClass: 'badge-green',  ringClass: 'ring-green',  btnClass: 'green'  },
+    };
+    return { level: lvl, ...(labelMap[lvl] || labelMap.GREEN), source: 'backend' };
+  }
+
+  // 2. Fallback: lógica simplificada frontend (sin datos de servidor)
+  const iri         = p.iri || 0;
+  const lapses      = p.lapses || 0;
+  const externalLoad = p.gps?.decel_z5 || p.gps?.decel_high || 0;
+  const meanLoad    = allPerformance.reduce((s, x) => s + (x.gps?.decel_z5 || x.gps?.decel_high || 0), 0) / (allPerformance.length || 1);
+
+  if (iri < THRESH.iriCritical && externalLoad > meanLoad)
+    return { level: 'RED',    label: 'RIESGO CRÍTICO',      action: 'Optimizar',   badgeClass: 'badge-red',    ringClass: 'ring-red',    btnClass: 'red',    source: 'frontend' };
+  if (lapses > THRESH.lapses)
+    return { level: 'YELLOW', label: 'RIESGO COORDINACIÓN', action: 'Reprogramar', badgeClass: 'badge-yellow', ringClass: 'ring-yellow', btnClass: 'yellow', source: 'frontend' };
+  if (iri > THRESH.iriOptimal && externalLoad >= meanLoad)
+    return { level: 'GREEN',  label: 'ADAPTACIÓN ÓPTIMA',   action: 'Mantener',    badgeClass: 'badge-green',  ringClass: 'ring-green',  btnClass: 'green',  source: 'frontend' };
+  return   { level: 'GREEN',  label: 'ESTABLE',              action: 'Mantener',    badgeClass: 'badge-green',  ringClass: 'ring-green',  btnClass: 'green',  source: 'frontend' };
+}
+
+// Compatibilidad: calcIVN legacy (usado en openModal con parámetros directos)
 function calcIVN(iri, lapses, externalLoad, meanLoad) {
   if (iri < THRESH.iriCritical && externalLoad > meanLoad)
     return { level: 'RED',    label: 'RIESGO CRÍTICO',       action: 'Optimizar',    badgeClass: 'badge-red',    ringClass: 'ring-red',    btnClass: 'red' };
@@ -37,6 +73,23 @@ function calcIVN(iri, lapses, externalLoad, meanLoad) {
   if (iri > THRESH.iriOptimal && externalLoad >= meanLoad)
     return { level: 'GREEN',  label: 'ADAPTACIÓN ÓPTIMA',    action: 'Mantener',     badgeClass: 'badge-green',  ringClass: 'ring-green',  btnClass: 'green' };
   return   { level: 'GREEN',  label: 'ESTABLE',               action: 'Mantener',     badgeClass: 'badge-green',  ringClass: 'ring-green',  btnClass: 'green' };
+}
+
+/**
+ * Retorna etiqueta de la fuente de Wellness (M-04 — transparencia clínica).
+ * Permite al clínico saber si el IRI se calculó con datos de Wellness completos.
+ * Protocolo actual: 4 variables (sleepHours, sleepQuality, stressLevel, fatigueLevel).
+ * soreness fue eliminado del protocolo en revisiones anteriores.
+ */
+function getWellnessSourceLabel(p) {
+  const src = p.advanced_analysis?.wellness_source;
+  if (!src || src === 'NO_WELLNESS_DATA') return { label: '⚠ Sin Wellness', cls: 'text-muted' };
+  if (src === 'WELLNESS_4VAR')            return { label: '✓ Wellness 4/4',  cls: 'text-green' };
+  if (src?.startsWith('WELLNESS_PARTIAL')) {
+    const n = src.replace('WELLNESS_PARTIAL_', '').replace('VAR', '');
+    return { label: `⚠ Wellness ${n}/4`, cls: 'text-yellow' };
+  }
+  return { label: '—', cls: 'text-muted' };
 }
 
 // ─── Global Athletes Cache (Read-Only) ───
@@ -99,14 +152,16 @@ function renderDashboard() {
   let counts = { RED:0, YELLOW:0, GREEN:0 };
 
   const items = allPerformance.map(p => {
-    // Usar risk_level del Motor IVN si existe; si no, recalcular localmente
-    const savedLevel = p.risk_level || null;
-    const ivn = savedLevel
-      ? { level: savedLevel, label: p.ivn_label || savedLevel, action: p.action || 'mantener',
-          badgeClass: `badge-${savedLevel.toLowerCase()}`, ringClass: `ring-${savedLevel.toLowerCase()}`, btnClass: savedLevel.toLowerCase() }
-      : calcIVN(p.iri||0, p.lapses||0, getLoad(p), meanLoad);
+    // resolveRiskLevel prioriza risk_level del backend (IVN numérico + ACWR + Z-scores)
+    // y solo recae en lógica frontend si no hay dato del servidor — Corrección 6
+    const ivn = resolveRiskLevel(p);
     counts[ivn.level]++;
     const initials = (p.athleteName||'?').split(' ').map(w=>w[0]).join('').slice(0,2);
+    const wSrc = getWellnessSourceLabel(p);  // M-04: transparencia clínica
+    // Indicador de bondad de ajuste Ex-Gaussiano (M-03)
+    const fitBadge = p.advanced_analysis?.fit_quality === 'POOR'
+      ? `<span title="Ajuste Ex-Gaussiano pobre (KS p=${p.advanced_analysis?.ks_pval}) — τ puede ser impreciso" style="color:var(--yellow);font-size:10px;margin-left:4px">⚠ FIT</span>`
+      : '';
     return `
       <div class="athlete-card" onclick="openModal('${p.id}')">
         <div class="athlete-avatar">
@@ -115,7 +170,11 @@ function renderDashboard() {
         </div>
         <div class="athlete-info">
           <div class="athlete-name">${p.athleteName || p.athleteId}</div>
-          <div class="athlete-pos">${p.position || '—'}</div>
+          <div class="athlete-pos" style="display:flex;align-items:center;gap:4px">
+            ${p.position || '—'}
+            <span class="${wSrc.cls}" style="font-size:9px;opacity:0.8" title="Fuente Wellness">${wSrc.label}</span>
+            ${fitBadge}
+          </div>
         </div>
         <div class="athlete-metrics">
           <div class="metric-mini">
@@ -483,12 +542,20 @@ function populateAthleteAutocomplete() {
 
 function loadAthleteReport(athleteId) {
   if (!athleteId) { document.getElementById('report-container').innerHTML='<div class="empty-state"><div class="empty-icon">📊</div><p>Selecciona un atleta</p></div>'; return; }
-  const records = allPerformance.filter(p=>p.athleteId===athleteId).slice(0,14);
+  
+  let records = allPerformance.filter(p=>p.athleteId===athleteId);
+  records.sort((a, b) => {
+    const d1 = a.date || (a.id ? a.id.split('_')[1] : '') || '';
+    const d2 = b.date || (b.id ? b.id.split('_')[1] : '') || '';
+    return d1.localeCompare(d2);
+  });
+  records = records.slice(-14);
+
   if (!records.length) { document.getElementById('report-container').innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><p>Sin registros</p></div>'; return; }
 
-  const labels = records.map(p=>p.date||'').reverse();
-  const iriVals = records.map(p=>p.iri||0).reverse();
-  const decelVals = records.map(p=>p.gps?.decel_high||0).reverse();
+  const labels = records.map(p => p.date || (p.id ? p.id.split('_')[1] : '') || '');
+  const iriVals = records.map(p=>p.iri||0);
+  const decelVals = records.map(p=>p.gps?.decel_high||0);
 
   document.getElementById('report-container').innerHTML = `
     <div class="report-chart-container"><canvas id="reportChart"></canvas></div>

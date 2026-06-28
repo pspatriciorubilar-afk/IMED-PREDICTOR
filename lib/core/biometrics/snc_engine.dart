@@ -2,18 +2,18 @@ import 'dart:math';
 import '../../features/biometrics/domain/biometric_models.dart';
 
 /// Motor local de Inteligencia de Rendimiento para el Sistema Nervioso Central.
-/// 
-/// FÓRMULA COMPLETA (v2.1):
-///   IRIFinal = IRIBase × contextModifier
+///
+/// FÓRMULA COMPLETA (v2.2):
+///   IRIFinal = (PVTScore + WellnessScore) / 2   — Algoritmo Fiel 50/50
 ///
 /// IRIBase (señales objetivas):
 ///   100% PVT  — Velocidad de reacción neural (latencia cognitiva)
 ///
-/// contextModifier (señales subjetivas del cuestionario diario):
-///   Sueño   — Horas + Calidad percibida (mayor impacto)
-///   Estrés  — Penaliza la capacidad de adaptación
-///   Fatiga  — Penaliza la disponibilidad muscular
-///   DOMS    — Ajuste por carga mecánica periférica (menor impacto)
+/// WellnessScore (señales subjetivas — 4 factores con pesos evidence-based):
+///   sleepHours   30 pts — mayor predictor cognitivo (Watson et al., 2015)
+///   sleepQuality 25 pts — calidad del sueño (Lastella et al., 2020)
+///   stressLevel  25 pts — predictor primario de bienestar (Hooper & Mackinnon, 1995)
+///   fatigueLevel 20 pts — marcador complementario (Saw et al., 2016)
 class SNCEngine {
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -69,13 +69,18 @@ class SNCEngine {
   }
 
   /// Calcula el puntaje de Wellness (0-100) compatible con la Plataforma Web.
-  /// Distribuye el 100% en 4 factores (25% cada uno).
+  /// Pesos basados en literatura de ciencias del deporte:
+  ///   sleepHours   30 pts — mayor predictor de consolidación cognitiva (Watson et al., 2015)
+  ///   sleepQuality 25 pts — calidad del sueño (Lastella et al., 2020)
+  ///   stressLevel  25 pts — predictor primario de bienestar (Hooper & Mackinnon, 1995)
+  ///   fatigueLevel 20 pts — marcador complementario (Saw et al., 2016)
+  /// DEBE SER IDÉNTICA a pvt_exgauss_worker.py y app_v411_final.js
   static double _computeWellnessScore(WellnessSurvey w) {
-    final hScore = (min(8.0, w.sleepHours) / 8.0) * 25.0;
-    final qScore = (w.sleepQuality / 5.0) * 25.0;
-    final sScore = ((6.0 - w.stressLevel) / 5.0) * 25.0;
-    final fScore = ((6.0 - w.fatigueLevel) / 5.0) * 25.0;
-    
+    final hScore = (min(8.0, w.sleepHours) / 8.0) * 30.0;  // 30 pts
+    final qScore = (w.sleepQuality / 5.0) * 25.0;           // 25 pts
+    final sScore = ((6.0 - w.stressLevel) / 5.0) * 25.0;   // 25 pts (inv.)
+    final fScore = ((6.0 - w.fatigueLevel) / 5.0) * 20.0;  // 20 pts (inv.)
+
     return hScore + qScore + sScore + fScore;
   }
 

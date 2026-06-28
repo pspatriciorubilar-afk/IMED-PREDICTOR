@@ -2,22 +2,17 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║   IMED SPORT — pvt_exgauss_worker.py                            ║
 ║   Motor de Análisis Ex-Gaussiano & Z-Scores (PVT-B, n≥30)      ║
-║   Versión: 1.0.0 | Ubuntu Worker | Cron: diario 06:00 AM       ║
+║   Versión: 2.0.0 | Cloud Functions (Event-Driven, Serverless)   ║
 ║                                                                  ║
 ║   Fundamento científico:                                         ║
 ║   - Hohle (1965) / Ratcliff & Murdock (1976): Ex-Gaussian PVT  ║
 ║   - Basner & Dinges (2011): Validación PVT-B (30 estímulos)     ║
 ║   - Lim & Dinges (2008): τ como predictor de lapses cognitivos  ║
+║                                                                  ║
+║   Arquitectura: Importado como módulo por main.py               ║
+║   Trigger: @firestore_fn.on_document_created                    ║
+║   Región: us-central1 | Python 3.13 | Memory: 512MB             ║
 ╚══════════════════════════════════════════════════════════════════╝
-
-INSTALACIÓN EN UBUNTU:
-    pip install firebase-admin scipy numpy pandas
-
-VARIABLES DE ENTORNO:
-    GOOGLE_APPLICATION_CREDENTIALS=/ruta/a/serviceAccount.json
-
-CRON (ejecutar diariamente a las 06:00):
-    0 6 * * * /usr/bin/python3 /opt/imed/pvt_exgauss_worker.py >> /var/log/imed_exgauss.log 2>&1
 """
 
 import os
@@ -42,22 +37,19 @@ log = logging.getLogger("IMED-ExGauss")
 
 # ─── Firebase Init ─────────────────────────────────────────────────────────────
 def init_firebase():
-    """Inicializa Firebase Admin con Service Account o credenciales de entorno."""
+    """Inicializa Firebase Admin con Service Account o credenciales implícitas de entorno (ADC).
+    En Cloud Functions (GCP) las credenciales se inyectan automáticamente — no se requiere archivo.
+    """
     if not firebase_admin._apps:
         cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if not cred_path:
-            local_path = "/home/pato/imed/serviceAccount.json"
-            if os.path.exists(local_path):
-                cred_path = local_path
-                
         if cred_path and os.path.exists(cred_path):
             cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred)
             log.info(f"Firebase inicializado con Service Account: {cred_path}")
         else:
-            # En GCP/Cloud Run usa credenciales implícitas del entorno
+            # Credenciales implícitas de GCP (Application Default Credentials)
             firebase_admin.initialize_app()
-            log.info("Firebase inicializado con credenciales de entorno (ADC)")
+            log.info("Firebase inicializado con credenciales de entorno (ADC — GCP/Cloud Functions)")
     return firestore.client()
 
 
@@ -90,15 +82,16 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
         mean_val = np.mean(trials_arr)
         var_val = np.var(trials_arr, ddof=1)
         m3 = np.mean((trials_arr - mean_val)**3)
-        
+
         tau_init = (m3 / 2.0)**(1/3) if m3 > 0 else 0.2 * np.sqrt(var_val)
         tau_init = min(tau_init, np.sqrt(var_val) * 0.9)
         sigma_init = np.sqrt(max(1.0, var_val - tau_init**2))
         mu_init = mean_val - tau_init
-        
-        mu_init = np.clip(mu_init, 100.0, 400.0)
-        sigma_init = np.clip(sigma_init, 5.0, 200.0)
-        tau_init = np.clip(tau_init, 10.0, 300.0)
+
+        mu_init    = np.clip(mu_init,    100.0, 400.0)
+        sigma_init = np.clip(sigma_init,   5.0, 200.0)
+        # Límite inferior de τ elevado a 20ms (poblaciones descansadas τ ≥ 20ms; Lim & Dinges 2008)
+        tau_init   = np.clip(tau_init,    20.0, 300.0)
 
         # Función objetivo acotada y regularizada
         def neg_log_likelihood(params):
@@ -108,16 +101,16 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
             nll = -np.sum(log_pdf)
             if np.isnan(nll) or np.isinf(nll):
                 return 1e10
-            
-            # Penalización L2 hacia medias poblacionales teóricas para evitar dispersión en N=30
+            # Penalización L2 (Ridge/Tikhonov) hacia medias poblacionales teóricas
+            # Ancora μ→220ms, σ→45ms, τ→65ms (deportistas de élite en reposo)
             return nll + 0.001 * (mu - 220)**2 + 0.01 * (sigma - 45)**2 + 0.005 * (tau - 65)**2
 
-        bounds = [(100.0, 450.0), (10.0, 250.0), (10.0, 350.0)]
-        
+        bounds = [(100.0, 450.0), (10.0, 250.0), (20.0, 350.0)]
+
         res = minimize(
-            neg_log_likelihood, 
-            x0=[mu_init, sigma_init, tau_init], 
-            method='L-BFGS-B', 
+            neg_log_likelihood,
+            x0=[mu_init, sigma_init, tau_init],
+            method='L-BFGS-B',
             bounds=bounds,
             options={'ftol': 1e-6}
         )
@@ -132,13 +125,30 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
         mu_ms, sigma_ms, tau_ms = float(mu), float(sigma), float(tau)
 
         exg_mean = mu_ms + tau_ms
-        exg_var  = sigma_ms**2 + tau_ms**2
-        
-        log_lik = float(np.sum(exponnorm.logpdf(trials_arr, tau_ms/sigma_ms, loc=mu_ms, scale=sigma_ms)))
+
+        log_lik = float(np.sum(exponnorm.logpdf(trials_arr, tau_ms / sigma_ms, loc=mu_ms, scale=sigma_ms)))
 
         if not (100 <= mu_ms <= 450) or sigma_ms <= 0 or tau_ms <= 0:
             log.warning(f"Parámetros Ex-Gaussianos fuera de rango clínico: μ={mu_ms:.1f}, σ={sigma_ms:.1f}, τ={tau_ms:.1f}")
             return None
+
+        # ── AIC / BIC (L-03) ──────────────────────────────────────────────────
+        # AIC = 2k - 2·ln(L);  BIC = k·ln(n) - 2·ln(L)   | k=3 parámetros
+        k = 3
+        aic = round(2 * k - 2 * log_lik, 3)
+        bic = round(k * math.log(n) - 2 * log_lik, 3)
+
+        # ── Bondad de Ajuste: Anderson-Darling (M-03) ─────────────────────────
+        # Genera muestras teóricas de la Ex-Gaussiana ajustada y aplica KS-test
+        # para detectar bimodalidad o ajuste pobre (sesiones con fatiga extrema).
+        from scipy.stats import kstest, anderson
+        cdf_fn = lambda x: exponnorm.cdf(x, tau_ms / sigma_ms, loc=mu_ms, scale=sigma_ms)
+        ks_stat, ks_pval = kstest(trials_arr, cdf_fn)
+        # p < 0.05 indica que la distribución observada difiere significativamente
+        # de la Ex-Gaussiana ajustada (posible bimodalidad por fatiga extrema)
+        fit_quality = "POOR" if ks_pval < 0.05 else "ACCEPTABLE" if ks_pval < 0.20 else "GOOD"
+        if fit_quality == "POOR":
+            log.warning(f"  ⚠ Bondad de ajuste POBRE (KS p={ks_pval:.3f}). Posible distribución bimodal — τ puede ser impreciso.")
 
         result = {
             "mu_ms":       round(mu_ms, 2),
@@ -147,8 +157,12 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
             "exg_mean_ms": round(exg_mean, 2),
             "n_trials":    int(n),
             "log_lik":     round(log_lik, 3),
+            "aic":         aic,
+            "bic":         bic,
+            "fit_quality": fit_quality,
+            "ks_pval":     round(float(ks_pval), 4),
         }
-        log.info(f"  Ex-Gauss ajustado: μ={mu_ms:.1f}ms  σ={sigma_ms:.1f}ms  τ={tau_ms:.1f}ms (n={n})")
+        log.info(f"  Ex-Gauss ajustado: μ={mu_ms:.1f}ms  σ={sigma_ms:.1f}ms  τ={tau_ms:.1f}ms (n={n}) | AIC={aic} | Fit={fit_quality}")
         return result
 
     except Exception as e:
@@ -208,12 +222,23 @@ def compute_zscores(db, athlete_id: str, today_str: str,
                 tau_history.append(float(aa["tau_ms"]))
             w = d.get("wellness")
             if isinstance(w, dict):
-                # Recalcular wellness score simple desde campos
-                h = w.get("sleepHours", 8)
+                # Fórmula Wellness ponderada por evidencia (4 variables, máx 100 pts)
+                # Pesos basados en literatura de ciencias del deporte:
+                #   sleepHours   30 pts — mayor predictor de consolidación cognitiva (Watson et al., 2015)
+                #   sleepQuality 25 pts — calidad del sueño (Lastella et al., 2020)
+                #   stressLevel  25 pts — predictor primario de bienestar (Hooper & Mackinnon, 1995)
+                #   fatigueLevel 20 pts — marcador complementario (Saw et al., 2016)
+                # DEBE SER IDÉNTICA a snc_engine.dart y app_v411_final.js
+                h = w.get("sleepHours",   8)
                 q = w.get("sleepQuality", 5)
-                s = w.get("stressLevel", 1)
+                s = w.get("stressLevel",  1)
                 f = w.get("fatigueLevel", 1)
-                score = (min(8,h)/8)*25 + (q/5)*25 + ((6-s)/5)*25 + ((6-f)/5)*25
+                score = (
+                    (min(8, h) / 8) * 30 +  # sleep_hours    (0–30 pts)
+                    (q / 5)         * 25 +  # sleep_quality  (0–25 pts)
+                    ((6 - s) / 5)   * 25 +  # stress (inv.)  (0–25 pts)
+                    ((6 - f) / 5)   * 20    # fatigue (inv.) (0–20 pts)
+                )
                 wellness_history.append(score)
 
         result = {
@@ -317,10 +342,13 @@ def classify_exgauss_status(tau_zscore: float | None, wellness_zscore: float | N
         }
 
     if tau_zscore > 1.0 or (wellness_zscore is not None and wellness_zscore < -0.8):
+        # Construir mensaje seguro — tau_zscore puede ser None si solo wellness activó la rama
+        tau_info = f"τ elevado ({tau_zscore:.1f}σ sobre base)" if tau_zscore is not None else "Bienestar subjetivo degradado"
+        w_info   = f" | Bienestar {wellness_zscore:.1f}σ bajo base" if wellness_zscore is not None else ""
         return {
             "readiness_status": "YELLOW",
             "exg_alert": (
-                f"🟡 PRECAUCIÓN: τ elevado ({tau_zscore:.1f}σ sobre base). "
+                f"🟡 PRECAUCIÓN: {tau_info}{w_info}. "
                 f"Monitorear carga y calidad del sueño."
             )
         }
@@ -425,13 +453,23 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
         return
 
     # ── 2. Calcular Wellness Score (0–100) ──
-    wellness_score = None
+    # Pesos basados en literatura (Watson 2015; Hooper 1995; Lastella 2020; Saw 2016)
+    # DEBE SER IDÉNTICA a snc_engine.dart y app_v411_final.js
+    wellness_score  = None
+    wellness_source = "NO_WELLNESS_DATA"  # M-04: transparencia clínica
     if isinstance(wellness_raw, dict):
-        h = wellness_raw.get("sleepHours", 8)
+        h = wellness_raw.get("sleepHours",   8)
         q = wellness_raw.get("sleepQuality", 5)
-        s = wellness_raw.get("stressLevel", 1)
+        s = wellness_raw.get("stressLevel",  1)
         f = wellness_raw.get("fatigueLevel", 1)
-        wellness_score = (min(8,h)/8)*25 + (q/5)*25 + ((6-s)/5)*25 + ((6-f)/5)*25
+        wellness_score = (
+            (min(8, h) / 8) * 30 +  # 30 pts: sueño horas (mayor predictor cognitivo)
+            (q / 5)         * 25 +  # 25 pts: calidad sueño
+            ((6 - s) / 5)   * 25 +  # 25 pts: estrés percibido (inv.)
+            ((6 - f) / 5)   * 20    # 20 pts: fatiga percibida (inv.)
+        )
+        fields_present = [k for k in ["sleepHours", "sleepQuality", "stressLevel", "fatigueLevel"] if wellness_raw.get(k) is not None]
+        wellness_source = "WELLNESS_4VAR" if len(fields_present) == 4 else f"WELLNESS_PARTIAL_{len(fields_present)}VAR"
 
     # ── 3. Z-scores ──
     tau_today = exg["tau_ms"] if exg else None
@@ -447,12 +485,21 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
     # ── 5. Construir payload advanced_analysis ──
     advanced_analysis = {
         # Parámetros Ex-Gaussianos
+        # NOTA C-02: El campo 'iri' en Firestore es el IRI compuesto calculado por la app
+        # móvil (Wellness + PVT). No es el PVT crudo. El worker opera sobre tau_ms
+        # (parámetro Ex-Gaussiano puro) para evitar doble-conteo de Wellness.
         "mu_ms":       exg["mu_ms"]       if exg else None,
         "sigma_ms":    exg["sigma_ms"]    if exg else None,
         "tau_ms":      exg["tau_ms"]      if exg else None,
         "exg_mean_ms": exg["exg_mean_ms"] if exg else None,
         "n_trials":    exg["n_trials"]    if exg else len(trials),
         "log_lik":     exg["log_lik"]     if exg else None,
+
+        # Bondad de ajuste Ex-Gaussiano (M-03)
+        "aic":         exg["aic"]         if exg else None,
+        "bic":         exg["bic"]         if exg else None,
+        "fit_quality": exg["fit_quality"] if exg else None,
+        "ks_pval":     exg["ks_pval"]     if exg else None,
 
         # Z-Scores (ventana 21 días)
         "tau_zscore":           zscores.get("tau_zscore"),
@@ -466,10 +513,12 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
         "readiness_status": status["readiness_status"],
         "exg_alert":        status["exg_alert"],
 
-        # Metadatos
-        "processed_at": firestore.SERVER_TIMESTAMP,
-        "version": "exgauss-1.0",
-        "pvt_protocol": "PVT-B-30"
+        # Metadatos de trazabilidad (M-04)
+        "wellness_source":  wellness_source,   # Indica si el IRI incluyó todos los campos de Wellness
+        "wellness_score":   round(wellness_score, 2) if wellness_score is not None else None,
+        "processed_at":     firestore.SERVER_TIMESTAMP,
+        "version":          "exgauss-2.0",     # v2.0: formula unificada + goodness-of-fit
+        "pvt_protocol":     "PVT-B-30"
     }
 
     # ── 6. Write-back a Firestore ──
@@ -484,7 +533,7 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
 
 def main():
     log.info("═" * 60)
-    log.info("IMED SPORT — Worker Ex-Gaussiano v1.0")
+    log.info("IMED SPORT — Worker Ex-Gaussiano v2.0")
     log.info(f"Ejecución: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     log.info("═" * 60)
 

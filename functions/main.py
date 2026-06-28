@@ -15,7 +15,6 @@ def process_gps_csv(req: https_fn.CallableRequest) -> dict:
     # Importaciones diferidas para evitar timeouts de despliegue
     import pandas as pd
     import io
-    import datetime
     from firebase_admin import storage
     
     file_path = req.data.get("filePath")
@@ -436,14 +435,22 @@ def sync_athlete_history(req: https_fn.CallableRequest) -> dict:
             
             pvt = m.get("pvt", {})
             mean_lat = pvt.get("metrics", {}).get("meanLatency", m.get("latency", 0))
-            
+
+            # Obtener nombre del atleta para el dashboard (sin esta línea se muestra undefined)
+            ath_snap = db.collection("athletes").document(athlete_id).get()
+            ath_name = athlete_id
+            if ath_snap.exists:
+                ad = ath_snap.to_dict()
+                ath_name = f"{ad.get('firstName','')} {ad.get('lastName','')}".strip() or athlete_id
+
             db.collection("Daily_Performance").document(f"{athlete_id}_{date}").set({
-                "athleteId": athlete_id,
-                "date": date,
-                "iri": m.get("iri", 0),
-                "pvt": pvt,
-                "latency": mean_lat,
-                "wellness": m.get("wellness", {}),
+                "athleteId":   athlete_id,
+                "athleteName": ath_name,
+                "date":        date,
+                "iri":         m.get("iri", 0),
+                "pvt":         pvt,
+                "latency":     mean_lat,
+                "wellness":    m.get("wellness", {}),
                 "sync_method": "manual_sync_repair_v4"
             }, merge=True)
             synced += 1
