@@ -2,39 +2,111 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ─── FUNCIÓN DE VALIDACIÓN: Solo usuarios autenticados ───
+    // ══════════════════════════════════════════════════════════════════════════
+    // IMED PREDICTOR — Firestore Security Rules v2.0
+    // Sprint 1: RBAC + Multi-tenant isolation + Audit protection
+    // Fecha: 2026-07-21
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ─── HELPERS DE ROL (leen Custom Claims del token JWT de forma segura) ───
+
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    // ─── 1. ATLETAS ───
-    // Permitimos read/write público temporalmente para que la App Móvil 
-    // pueda enviar telemetría sin estar autenticada con Firebase Auth.
-    match /athletes/{athleteId} {
-      allow read, write: if true;
+    function getRole() {
+      return isAuthenticated() && ('role' in request.auth.token) ? request.auth.token.role : '';
+    }
 
+    function isSuperAdmin() {
+      return getRole() == 'SUPER_ADMIN';
+    }
+
+    function isPsicologo() {
+      return isSuperAdmin() || getRole() == 'PSICOLOGO';
+    }
+
+    function isCoach() {
+      return isPsicologo() || getRole() == 'COACH';
+    }
+
+    function isNotBlocked() {
+      // Si el campo 'blocked' no existe en el token, se asume no bloqueado (false)
+      return isAuthenticated() && (!('blocked' in request.auth.token) || request.auth.token.blocked != true);
+    }
+
+    function isValidDashboardUser() {
+      return isAuthenticated() && isNotBlocked();
+    }
+
+    // ─── 1. ATLETAS ──────────────────────────────────────────────────────────
+    // La app móvil Flutter escribe directamente a Firestore sin Firebase Auth.
+    // Por diseño, se mantiene write=true en /measurements (telemetría del deportista).
+    // El perfil del atleta (documento raíz) solo puede modificarlo el dashboard autenticado.
+    // NOTA: Migración futura → Anonymous Auth en la app permitirá restricción completa.
+    match /athletes/{athleteId} {
+      // Dashboard autenticado y no bloqueado puede leer cualquier atleta de su equipo
+      allow read: if isValidDashboardUser();
+      // Solo psicólogo/admin puede crear o actualizar el perfil del atleta
+      allow write: if isPsicologo();
+
+      // Sub-colección de mediciones (telemetría cruda)
+      // La app móvil escribe aquí directamente — write=true se mantiene por diseño
+      // hasta implementar Anonymous Auth en el cliente Flutter.
       match /measurements/{measurementId} {
-        allow read, write: if true;
+        allow read:  if isValidDashboardUser();
+        allow write: if true;  // TODO: restringir tras implementar Anonymous Auth en Flutter
       }
     }
 
-    // ─── 2. RENDIMIENTO DIARIO ───
-    // Motor IVN (App Móvil / Cloud Functions) puede escribir
-    // Dashboard SaaS puede leer. Dejamos write true para el backend local/móvil.
+    // ─── 2. RENDIMIENTO DIARIO (Daily_Performance) ───────────────────────────
+    // Escrita exclusivamente por Cloud Functions via Admin SDK (bypasea estas reglas).
+    // El Dashboard SaaS la lee para visualizar métricas.
     match /Daily_Performance/{docId} {
-      allow read:  if true;
-      allow write: if true;
+      allow read:  if isValidDashboardUser();
+      allow write: if false;  // Solo Admin SDK (Cloud Functions). El cliente nunca escribe aquí.
     }
 
-    // ─── 3. CONFIGURACIÓN DEL SISTEMA ───
+    // ─── 3. SUSCRIPCIONES ────────────────────────────────────────────────────
+    // Solo SuperAdmin puede gestionar suscripciones.
+    // Un usuario autenticado puede leer su propia suscripción.
+    match /subscriptions/{uid} {
+      allow read:  if isAuthenticated() && (request.auth.uid == uid || isSuperAdmin());
+      allow write: if false;  // Solo Admin SDK (Cloud Functions check_expired_subscriptions)
+    }
+
+    // ─── 4. AUDIT LOG ────────────────────────────────────────────────────────
+    // Inmutable desde el cliente. Solo Cloud Functions (Admin SDK) pueden escribir.
+    // SuperAdmin puede leer para auditoría cuantitativa.
+    match /audit_log/{logId} {
+      allow read:  if isSuperAdmin();
+      allow write: if false;  // Inmutable — solo Admin SDK
+    }
+
+    // ─── 5. NOTAS CLÍNICAS (Ficha Digital) ───────────────────────────────────
+    // El psicólogo solo puede leer/escribir SUS PROPIAS notas.
+    // SuperAdmin NO tiene permisos de lectura (privacidad absoluta).
+    // El contenido llega encriptado AES-256 desde el cliente Flutter.
+    match /clinical_notes/{noteId} {
+      // Leer y modificar/eliminar: solo el psicólogo propietario de la nota
+      allow read, update, delete: if isPsicologo()
+                                  && isNotBlocked()
+                                  && request.auth.uid == resource.data.psychologist_uid;
+      // Crear: verifica que el uid del creador coincide con el campo en el documento nuevo
+      allow create: if isPsicologo()
+                    && isNotBlocked()
+                    && request.auth.uid == request.resource.data.psychologist_uid;
+    }
+
+    // ─── 6. CONFIGURACIÓN DEL SISTEMA ────────────────────────────────────────
     match /system_config/{docId} {
-      allow read:  if isAuthenticated();
-      allow write: if isAuthenticated();
+      allow read:  if isValidDashboardUser();
+      allow write: if isSuperAdmin();
     }
 
-    // ─── 4. REGLA POR DEFECTO ───
+    // ─── 7. REGLA POR DEFECTO (deniega todo lo no explicitado) ───────────────
     match /{document=**} {
-      allow read:  if isAuthenticated();
+      allow read:  if isAuthenticated() && isNotBlocked();
       allow write: if false;
     }
   }

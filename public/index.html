@@ -17,7 +17,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-functions-compat.js"></script>
   <script src="gps_brands.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <link rel="stylesheet" href="style.css?v=1.0.2" />
+  <link rel="stylesheet" href="style.css?v=1.1.0" />
   <link rel="stylesheet" href="login.css" />
 </head>
 <body>
@@ -244,6 +244,7 @@
               <button id="btn-triage-toggle" class="btn-icon" style="border: 1px solid var(--border); color: var(--text-2); padding: 4px 12px; border-radius: 20px; font-size: 0.70rem; font-weight: 800; background: transparent; transition: all 0.2s; white-space:nowrap; cursor:pointer; letter-spacing: 0.5px;" onclick="toggleTriageMode()">TRIAJE: OFF</button>
               <div style="display:flex; gap:8px;">
                 <span class="dot red"></span><span>Crítico</span>
+                <span class="dot orange"></span><span>Fatiga</span>
                 <span class="dot yellow"></span><span>Advert.</span>
                 <span class="dot green"></span><span>Óptimo</span>
               </div>
@@ -275,6 +276,7 @@
           </div>
           <div class="chart-legend">
             <div class="legend-item"><span class="legend-dot" style="background:#FF4D4D"></span> Riesgo Crítico (IRI &lt; 60)</div>
+            <div class="legend-item"><span class="legend-dot" style="background:#FF9500"></span> Fatiga en Proceso</div>
             <div class="legend-item"><span class="legend-dot" style="background:#FFD60A"></span> Riesgo Coordinación (Lapses &gt; 2)</div>
             <div class="legend-item"><span class="legend-dot" style="background:#32D74B"></span> Adaptación Óptima</div>
           </div>
@@ -718,28 +720,9 @@
     </div>
   </div>
 
-  <script src="app_v411_final.js?v=4.14.8"></script>
+  <script src="app_v411_final.js?v=4.16.0"></script>
 
-  <!-- ─── Botón de cerrar sesión (se muestra en topbar) ─── -->
-  <script>
-    // Inyectar botón logout en el topbar una vez que el DOM esté listo
-    document.addEventListener('DOMContentLoaded', function() {
-      const topbarRight = document.querySelector('.topbar-right');
-      if (topbarRight) {
-        const logoutBtn = document.createElement('button');
-        logoutBtn.className = 'btn-icon';
-        logoutBtn.title = 'Cerrar sesión';
-        logoutBtn.innerHTML = '⏻';
-        logoutBtn.style.cssText = 'color:#636375; font-size:16px; transition:color 0.2s;';
-        logoutBtn.onmouseover = function() { this.style.color = '#FF4D4D'; };
-        logoutBtn.onmouseout  = function() { this.style.color = '#636375'; };
-        logoutBtn.onclick = function() {
-          if (confirm('¿Cerrar sesión?')) window.imedLogout();
-        };
-        topbarRight.appendChild(logoutBtn);
-      }
-    });
-  </script>
+  <!-- ─── El botón de cerrar sesión se inyecta desde auth.js ─── -->
 
   </div><!-- /app-shell -->
 

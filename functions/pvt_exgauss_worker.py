@@ -303,80 +303,138 @@ def compute_zscores(db, athlete_id: str, today_str: str,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MÓDULO 3: LÓGICA DE SEMÁFORO EX-GAUSSIANO
+# MÓDULO 3: LÓGICA DE SEMÁFORO EX-GAUSSIANO Y MOTOR PIFC
 # ══════════════════════════════════════════════════════════════════════════════
+
+PIFC_PROTOCOLS = {
+    "YELLOW": {
+        "title": "Protocolo Alerta Temprana",
+        "interventions": [
+            "Reducir carga táctica compleja (toma de decisiones) en un 20-30%",
+            "Implementar NSDR (Non-Sleep Deep Rest) de 20 min post-entrenamiento",
+            "Revisar higiene lumínica: bloquear luz azul 2h antes del sueño"
+        ]
+    },
+    "ORANGE": {
+        "title": "Protocolo Intervención Proactiva",
+        "interventions": [
+            "Reducir carga total de entrenamiento 30-40% por 48-72h",
+            "Respiración de coherencia cardíaca (0.1 Hz, 5s inhala / 5s exhala)",
+            "Optimizar sueño profundo: temperatura ambiente 18-19°C, oscuridad total"
+        ]
+    },
+    "RED": {
+        "title": "Protocolo Alerta Crítica — Intervención Inmediata",
+        "interventions": [
+            "SUSPENDER actividades de alta demanda cognitiva por 24-48h mínimo",
+            "Sesión de recuperación activa únicamente (movilidad, agua termal)",
+            "Evaluación clínica por psicólogo: descartar sobreentrenamiento sistémico"
+        ]
+    }
+}
 
 def classify_exgauss_status(tau_zscore: float | None, wellness_zscore: float | None,
                              tau_ms: float | None) -> dict:
     """
-    Semáforo de estado basado en distribución Ex-Gaussiana.
-
-    Reglas (orden de prioridad):
-    1. Si wellness_zscore < -2.0 → ROJO (Estrés/Fatiga subjetiva crítica)
-    2. Si tau_zscore > 1.5 AND wellness_zscore < -1.2 → ROJO (Fatiga Central Confirmada)
-    3. Si tau_zscore > 2.0 (solo) → ROJO (Cola atencional crítica)
-    4. Si tau_zscore > 1.0 OR wellness_zscore < -0.8 → AMARILLO
-    5. Sin Z-scores disponibles → usar τ absoluto como fallback clínico
-    6. Else → VERDE
+    Semáforo de estado basado en distribución Ex-Gaussiana y Motor PIFC.
     """
-    # 1. Regla de Seguridad por Wellness Crítico (Override)
-    if wellness_zscore is not None and wellness_zscore < -2.0:
+    def _get_raw_status():
+        # ── 1. Safety Override: Wellness Crítico ────────────────────────────────
+        if wellness_zscore is not None and wellness_zscore < -2.0:
+            return {
+                "readiness_status": "RED",
+                "fatigue_label": "Fatiga Consolidada",
+                "exg_alert": (
+                    f"🔴 ESTRÉS/FATIGA CRÍTICA SUBJETIVA: El bienestar se encuentra extremadamente degradado "
+                    f"({abs(wellness_zscore):.1f}σ bajo la línea base). Alerta preventiva de sobreentrenamiento."
+                )
+            }
+
+        # ── Fallback por τ absoluto (sin línea base histórica aún) ──────────────
+        if tau_zscore is None:
+            if tau_ms is None:
+                return {
+                    "readiness_status": "CALIBRATING",
+                    "fatigue_label": "Calibrando",
+                    "exg_alert": "Sin datos suficientes para clasificar. Se requieren mínimo 3 sesiones históricas."
+                }
+            # Umbrales clínicos absolutos (Lim & Dinges 2008) — mapeados a 4 niveles
+            if tau_ms > 90:
+                return {"readiness_status": "RED",    "fatigue_label": "Fatiga Consolidada",
+                        "exg_alert": "🔴 Cola atencional (τ) crítica. Fatiga central probable. (Modo: Umbral Absoluto)"}
+            if tau_ms > 70:
+                return {"readiness_status": "ORANGE", "fatigue_label": "Fatiga en Proceso",
+                        "exg_alert": "🟠 Cola atencional (τ) elevada. Intervención proactiva recomendada. (Modo: Umbral Absoluto)"}
+            if tau_ms > 55:
+                return {"readiness_status": "YELLOW", "fatigue_label": "Fatiga Incipiente",
+                        "exg_alert": "🟡 Cola atencional (τ) en zona de precaución. (Modo: Umbral Absoluto)"}
+            return {"readiness_status": "GREEN", "fatigue_label": "Homeostasis",
+                    "exg_alert": "🟢 Cola atencional (τ) dentro del rango normal."}
+
+        # ── 2. RED: Cola Atencional Crítica pura (τ_zscore > 2.0) ───────────────
+        if tau_zscore > 2.0:
+            return {
+                "readiness_status": "RED",
+                "fatigue_label": "Fatiga Consolidada",
+                "exg_alert": (
+                    f"🔴 FATIGA CONSOLIDADA: τ desviado {tau_zscore:.1f}σ sobre línea base. "
+                    f"Los lapsos involuntarios superan el umbral de seguridad clínica. "
+                    f"Intervención inmediata recomendada."
+                )
+            }
+
+        # ── 3. RED: Fatiga Central Confirmada (cruce τ + wellness) ──────────────
+        if tau_zscore > 1.5 and wellness_zscore is not None and wellness_zscore < -1.2:
+            return {
+                "readiness_status": "RED",
+                "fatigue_label": "Fatiga Consolidada",
+                "exg_alert": (
+                    f"🔴 FATIGA CENTRAL CONFIRMADA: La cola atencional (τ) se ha desplazado "
+                    f"{tau_zscore:.1f}σ sobre la línea base individual, combinada con un estado "
+                    f"de bienestar {abs(wellness_zscore):.1f}σ bajo el promedio. "
+                    f"El atleta está rindiendoforzadamente. Riesgo de lesión elevado."
+                )
+            }
+
+        # ── 4. ORANGE: Fatiga en Proceso (1.5 ≤ τ_zscore ≤ 2.0) ────────────────
+        if tau_zscore >= 1.5:
+            w_info = f" | Bienestar {wellness_zscore:.1f}σ" if wellness_zscore is not None else ""
+            return {
+                "readiness_status": "ORANGE",
+                "fatigue_label": "Fatiga en Proceso",
+                "exg_alert": (
+                    f"🟠 FATIGA EN PROCESO: τ elevado {tau_zscore:.1f}σ sobre línea base{w_info}. "
+                    f"Reducir carga táctica y aplicar técnicas de desactivación neuropsicológica. "
+                    f"Monitoreo intensivo recomendado."
+                )
+            }
+
+        # ── 5. YELLOW: Fatiga Incipiente (1.0 ≤ τ_zscore < 1.5 o wellness bajo) ─
+        if tau_zscore > 1.0 or (wellness_zscore is not None and wellness_zscore < -0.8):
+            tau_info = f"τ elevado ({tau_zscore:.1f}σ sobre base)" if tau_zscore is not None else "Bienestar subjetivo degradado"
+            w_info   = f" | Bienestar {wellness_zscore:.1f}σ bajo base" if wellness_zscore is not None else ""
+            return {
+                "readiness_status": "YELLOW",
+                "fatigue_label": "Fatiga Incipiente",
+                "exg_alert": (
+                    f"🟡 ALERTA TEMPRANA: {tau_info}{w_info}. "
+                    f"Monitorear carga y calidad del sueño. Revisar higiene lumínica y rutinas de recuperación."
+                )
+            }
+
+        # ── 6. GREEN: Homeostasis ────────────────────────────────────────────────
         return {
-            "readiness_status": "RED",
-            "exg_alert": (
-                f"🔴 ESTRÉS/FATIGA CRÍTICA SUBJETIVA: El bienestar se encuentra extremadamente degradado "
-                f"({abs(wellness_zscore):.1f}σ bajo la línea base). Alerta preventiva de sobreentrenamiento."
-            )
+            "readiness_status": "GREEN",
+            "fatigue_label": "Homeostasis",
+            "exg_alert": "🟢 Cola atencional dentro del rango óptimo individual. Sin intervención necesaria."
         }
 
-    # Fallback por τ absoluto (sin línea base histórica aún)
-    if tau_zscore is None:
-        if tau_ms is None:
-            return {"readiness_status": "CALIBRATING", "exg_alert": "Sin datos suficientes para clasificar."}
-        # Umbrales clínicos absolutos (Lim & Dinges 2008)
-        if tau_ms > 80:
-            return {"readiness_status": "RED",    "exg_alert": "Cola atencional (τ) elevada. Fatiga central probable. (Modo: Umbral Absoluto)"}
-        if tau_ms > 55:
-            return {"readiness_status": "YELLOW", "exg_alert": "Cola atencional (τ) en zona de precaución. (Modo: Umbral Absoluto)"}
-        return {"readiness_status": "GREEN", "exg_alert": "Cola atencional (τ) dentro del rango normal."}
-
-    # Reglas Z-score
-    if tau_zscore > 1.5 and wellness_zscore is not None and wellness_zscore < -1.2:
-        return {
-            "readiness_status": "RED",
-            "exg_alert": (
-                f"🔴 FATIGA CENTRAL CONFIRMADA: La cola atencional (τ) se ha desplazado "
-                f"{tau_zscore:.1f}σ sobre tu línea base individual, combinada con un estado "
-                f"de bienestar {abs(wellness_zscore):.1f}σ bajo tu promedio. "
-                f"El atleta está rindiendoforzadamente. Riesgo de lesión elevado."
-            )
-        }
-
-    if tau_zscore > 2.0:
-        return {
-            "readiness_status": "RED",
-            "exg_alert": (
-                f"🔴 COLA ATENCIONAL CRÍTICA: τ desviado {tau_zscore:.1f}σ sobre línea base. "
-                f"Los lapsos involuntarios superan el umbral de seguridad clínica."
-            )
-        }
-
-    if tau_zscore > 1.0 or (wellness_zscore is not None and wellness_zscore < -0.8):
-        # Construir mensaje seguro — tau_zscore puede ser None si solo wellness activó la rama
-        tau_info = f"τ elevado ({tau_zscore:.1f}σ sobre base)" if tau_zscore is not None else "Bienestar subjetivo degradado"
-        w_info   = f" | Bienestar {wellness_zscore:.1f}σ bajo base" if wellness_zscore is not None else ""
-        return {
-            "readiness_status": "YELLOW",
-            "exg_alert": (
-                f"🟡 PRECAUCIÓN: {tau_info}{w_info}. "
-                f"Monitorear carga y calidad del sueño."
-            )
-        }
-
-    return {
-        "readiness_status": "GREEN",
-        "exg_alert": "🟢 Cola atencional dentro del rango óptimo individual."
-    }
+    status_dict = _get_raw_status()
+    rs = status_dict.get("readiness_status")
+    if rs in PIFC_PROTOCOLS:
+        status_dict["pifc_protocol"] = PIFC_PROTOCOLS[rs]
+        
+    return status_dict
 
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -279,12 +279,10 @@ function getUnifiedStatus(p) {
         }
     }
 
-    // Derivar badge/ring class para 4 estados PIFC
-    const levelLower = level.toLowerCase();
     return { 
         level, label, na, wellness, ivn, iri: iriFinal,
-        badgeClass: `badge-${levelLower}`, 
-        ringClass:  `ring-${levelLower}`,
+        badgeClass: `badge-${level.toLowerCase()}`, 
+        ringClass: `ring-${level.toLowerCase()}`,
         action: p.action || '',
         pifc_protocol: aa && aa.pifc_protocol ? aa.pifc_protocol : null
     };
@@ -1108,7 +1106,6 @@ function renderExGaussPanel(p) {
 
     // Color del status del semáforo Ex-Gaussiano
     const statusColor = aa.readiness_status === 'RED'    ? '#FF4D4D'
-                      : aa.readiness_status === 'ORANGE' ? '#FF9500'
                       : aa.readiness_status === 'YELLOW' ? '#FFD60A'
                       : aa.readiness_status === 'GREEN'  ? '#32D74B'
                       : '#636375';
@@ -1206,11 +1203,8 @@ function renderHistoricalDataTable(athleteId) {
         const lapses  = r.pvt?.metrics?.lapses ?? r.lapses ?? '—';
         const latency = r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? '—';
 
-        // Colores semáforo por fila — 4 estados PIFC
-        const iriColor = st.level === 'RED'    ? '#FF4D4D'
-                       : st.level === 'ORANGE' ? '#FF9500'
-                       : st.level === 'YELLOW' ? '#FFD60A'
-                       : '#32D74B';
+        // Colores semáforo por fila
+        const iriColor = st.level === 'RED' ? '#FF4D4D' : st.level === 'YELLOW' ? '#FFD60A' : '#32D74B';
         const tauZColor = tauZ !== '—'
             ? (Number(tauZ) > 1.5 ? '#FF4D4D' : Number(tauZ) > 1.0 ? '#FFD60A' : '#32D74B')
             : '#636375';
@@ -1221,16 +1215,14 @@ function renderHistoricalDataTable(athleteId) {
             ? (wellness < 60 ? '#FF4D4D' : wellness < 75 ? '#FFD60A' : '#32D74B')
             : '#636375';
 
-        // Badge de estado compacto — 4 niveles PIFC
+        // Badge de estado compacto
         const stateBadgeStyle = st.level === 'RED'
-            ? 'background:rgba(255,77,77,0.15);   color:#FF4D4D; border:1px solid rgba(255,77,77,0.3)'
-            : st.level === 'ORANGE'
-            ? 'background:rgba(255,149,0,0.15);  color:#FF9500; border:1px solid rgba(255,149,0,0.3)'
+            ? 'background:rgba(255,77,77,0.15); color:#FF4D4D; border:1px solid rgba(255,77,77,0.3)'
             : st.level === 'YELLOW'
             ? 'background:rgba(255,214,10,0.15); color:#FFD60A; border:1px solid rgba(255,214,10,0.3)'
             : st.level === 'GRAY'
             ? 'background:rgba(255,255,255,0.05); color:#636375; border:1px solid rgba(255,255,255,0.1)'
-            : 'background:rgba(50,215,75,0.15);  color:#32D74B; border:1px solid rgba(50,215,75,0.3)';
+            : 'background:rgba(50,215,75,0.15); color:#32D74B; border:1px solid rgba(50,215,75,0.3)';
 
         const dateFormatted = r.date ? r.date.split('-').reverse().join('/') : '—';
 
@@ -1592,7 +1584,7 @@ function renderAthleteTrialsChart(latestRecord) {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: function(ctx) { return `Ensayo \${ctx.raw.x}: \${ctx.raw.y} ms`; }
+                        label: function(ctx) { return \`Ensayo \${ctx.raw.x}: \${ctx.raw.y} ms\`; }
                     }
                 }
             },

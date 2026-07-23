@@ -415,12 +415,20 @@ function populateAthleteAutocomplete() {
 
 function loadAthleteReport(athleteId) {
   if (!athleteId) { document.getElementById('report-container').innerHTML='<div class="empty-state"><div class="empty-icon">📊</div><p>Selecciona un atleta</p></div>'; return; }
-  const records = allPerformance.filter(p=>p.athleteId===athleteId).slice(0,14);
+  
+  let records = allPerformance.filter(p=>p.athleteId===athleteId);
+  records.sort((a, b) => {
+    const d1 = a.date || (a.id ? a.id.split('_')[1] : '') || '';
+    const d2 = b.date || (b.id ? b.id.split('_')[1] : '') || '';
+    return d1.localeCompare(d2);
+  });
+  records = records.slice(-14);
+
   if (!records.length) { document.getElementById('report-container').innerHTML='<div class="empty-state"><div class="empty-icon">📭</div><p>Sin registros</p></div>'; return; }
 
-  const labels = records.map(p=>p.date||'').reverse();
-  const iriVals = records.map(p=>p.iri||0).reverse();
-  const decelVals = records.map(p=>p.gps?.decel_high||0).reverse();
+  const labels = records.map(p => p.date || (p.id ? p.id.split('_')[1] : '') || '');
+  const iriVals = records.map(p=>p.iri||0);
+  const decelVals = records.map(p=>p.gps?.decel_high||0);
 
   document.getElementById('report-container').innerHTML = `
     <div class="report-chart-container"><canvas id="reportChart"></canvas></div>

@@ -6,6 +6,93 @@ import datetime
 options.set_global_options(region="us-central1", timeout_sec=60, memory=512)
 initialize_app()
 
+# ==============================================================================
+# RBAC — ROLES Y HELPERS DE AUTORIZACIÓN (Sprint 1)
+# ==============================================================================
+
+# Jerarquía de roles (orden ascendente de privilegios)
+ROLE_DEPORTISTA  = "DEPORTISTA"
+ROLE_PSICOLOGO   = "PSICOLOGO"
+ROLE_COACH       = "COACH"
+ROLE_SUPER_ADMIN = "SUPER_ADMIN"
+
+# Conjuntos de roles para cada nivel de acceso
+ROLES_DASHBOARD  = {ROLE_COACH, ROLE_PSICOLOGO, ROLE_SUPER_ADMIN}
+ROLES_CLINICAL   = {ROLE_PSICOLOGO, ROLE_SUPER_ADMIN}
+ROLES_ADMIN_ONLY = {ROLE_SUPER_ADMIN}
+
+
+def _get_caller_role(req: https_fn.CallableRequest) -> str | None:
+    """
+    Extrae el rol del Custom Claim del token JWT del llamador.
+    Retorna None si el usuario no está autenticado o no tiene claim de rol.
+    """
+    if req.auth is None:
+        return None
+    return req.auth.token.get("role", None)
+
+
+def _require_role(req: https_fn.CallableRequest, allowed_roles: set) -> None:
+    """
+    Verifica que el llamador tenga uno de los roles permitidos.
+    Lanza HttpsError(PERMISSION_DENIED) si no cumple.
+
+    Args:
+        req:           La request del callable de Cloud Functions.
+        allowed_roles: Conjunto de roles que pueden ejecutar el endpoint.
+
+    Raises:
+        https_fn.HttpsError: Con código PERMISSION_DENIED si el rol no está autorizado.
+                             Con código UNAUTHENTICATED si no hay sesión activa.
+    """
+    if req.auth is None:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.UNAUTHENTICATED,
+            "Acceso denegado: se requiere autenticación."
+        )
+
+    role = _get_caller_role(req)
+
+    # Verificar si la cuenta está bloqueada por suscripción vencida
+    blocked = req.auth.token.get("blocked", False)
+    if blocked:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Cuenta bloqueada: la suscripción ha expirado. Contacta al administrador."
+        )
+
+    if role not in allowed_roles:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            f"Acceso denegado: se requiere rol {allowed_roles}. Rol actual: '{role}'."
+        )
+
+
+def _log_audit(action: str, actor_uid: str, target: str, details: dict = None) -> None:
+    """
+    Escribe un registro inmutable en la colección audit_log via Admin SDK.
+    El Admin SDK bypasea las Firestore Security Rules — solo Cloud Functions puede escribir aquí.
+
+    Args:
+        action:    Nombre de la acción (ej. "CREATE_USER", "DELETE_USER", "CHECK_SUBSCRIPTION").
+        actor_uid: UID del usuario que ejecutó la acción.
+        target:    Recurso afectado (ej. email del usuario creado, UID del deportista).
+        details:   Datos adicionales opcionales (no incluir datos sensibles/clínicos).
+    """
+    try:
+        db = firestore.client()
+        db.collection("audit_log").add({
+            "action":     action,
+            "actor_uid":  actor_uid,
+            "target":     target,
+            "details":    details or {},
+            "timestamp":  firestore.SERVER_TIMESTAMP,
+        })
+    except Exception as e:
+        # El audit log nunca debe romper el flujo principal — solo se registra el error
+        import logging
+        logging.getLogger("IMED-RBAC").error(f"[AUDIT-LOG-ERROR] No se pudo escribir log: {e}")
+
 @https_fn.on_call()
 def process_gps_csv(req: https_fn.CallableRequest) -> dict:
     """
@@ -292,7 +379,8 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         return
 
     try:
-        athlete_id = event.params["athlete_id"]
+        import urllib.parse
+        athlete_id = urllib.parse.unquote(event.params["athlete_id"])
         m_data = event.data.to_dict()
         date_str = m_data.get("date")
         
@@ -461,6 +549,144 @@ def sync_athlete_history(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call()
+def deduplicate_athlete_measurements(req: https_fn.CallableRequest) -> dict:
+    """
+    Limpieza de registros duplicados para un atleta.
+    Problema: versiones anteriores escribían 2 documentos en measurements/ por sesión,
+    lo que disparaba el trigger auto_sync_to_dashboard dos veces, generando duplicados
+    en Daily_Performance.
+
+    Estrategia de deduplicación:
+    - Agrupa todos los measurements por fecha (YYYY-MM-DD).
+    - Por cada fecha, conserva SOLO el documento con mayor IRI (el más completo).
+    - Elimina el resto de duplicados.
+    - Luego regenera Daily_Performance desde los measurements limpios.
+
+    Parámetros:
+        athleteId : ID del atleta (ej. el ID de Diego Dañobeytia en Firestore)
+        dryRun    : Si true, solo reporta sin eliminar (default: false)
+    """
+    athlete_id = req.data.get("athleteId", "").strip()
+    dry_run    = req.data.get("dryRun", False)
+
+    if not athlete_id:
+        return {"status": "error", "message": "athleteId requerido."}
+
+    db = firestore.client()
+
+    try:
+        # 1. Obtener nombre del atleta
+        athlete_snap = db.collection("athletes").document(athlete_id).get()
+        athlete_name = athlete_id
+        if athlete_snap.exists:
+            ad = athlete_snap.to_dict()
+            athlete_name = f"{ad.get('firstName','')} {ad.get('lastName','')}".strip() or athlete_id
+
+        # 2. Cargar todos los measurements del atleta
+        m_docs = db.collection("athletes").document(athlete_id)\
+                   .collection("measurements").get()
+
+        # 3. Agrupar por fecha → {date_str: [lista de (doc_id, iri, doc_ref)]}
+        by_date: dict[str, list] = {}
+        for doc in m_docs:
+            data = doc.to_dict()
+            # Extraer fecha — soporta campo 'date' o parsear 'timestamp'
+            raw_ts = data.get("timestamp", "")
+            date_str = data.get("date")
+            if not date_str:
+                if isinstance(raw_ts, str) and len(raw_ts) >= 10:
+                    date_str = raw_ts[:10]
+                else:
+                    continue  # Sin fecha → ignorar
+
+            iri = data.get("iri", 0) or 0
+            if date_str not in by_date:
+                by_date[date_str] = []
+            by_date[date_str].append({
+                "id":   doc.id,
+                "ref":  doc.reference,
+                "iri":  iri,
+                "data": data,
+            })
+
+        # 4. Por cada fecha, elegir el MEJOR documento (mayor IRI) y marcar el resto para borrado
+        to_delete = []
+        report    = []
+
+        for date_str, docs in by_date.items():
+            if len(docs) <= 1:
+                continue  # Sin duplicados en esta fecha
+
+            # Ordenar por IRI descendente → el primero es el mejor
+            docs_sorted = sorted(docs, key=lambda d: d["iri"], reverse=True)
+            best   = docs_sorted[0]
+            extras = docs_sorted[1:]
+
+            report.append({
+                "date":       date_str,
+                "duplicates": len(extras),
+                "kept_id":    best["id"],
+                "kept_iri":   best["iri"],
+                "deleted_ids": [d["id"] for d in extras],
+            })
+
+            for dup in extras:
+                to_delete.append(dup["ref"])
+
+        # 5. Eliminar duplicados (si no es dry_run)
+        deleted_count = 0
+        if not dry_run:
+            for ref in to_delete:
+                ref.delete()
+                deleted_count += 1
+
+            # 6. Regenerar Daily_Performance desde el historial limpio
+            #    Volver a cargar para asegurar que usamos los docs correctos
+            clean_docs = db.collection("athletes").document(athlete_id)\
+                           .collection("measurements").get()
+
+            for doc in clean_docs:
+                data = doc.to_dict()
+                raw_ts   = data.get("timestamp", "")
+                date_str = data.get("date") or (raw_ts[:10] if isinstance(raw_ts, str) else None)
+                if not date_str:
+                    continue
+
+                pvt      = data.get("pvt", {})
+                mean_lat = pvt.get("metrics", {}).get("meanLatency", data.get("latency", 0))
+                iri      = data.get("iri", 0) or 0
+                lapses   = pvt.get("metrics", {}).get("lapses", 0)
+
+                db.collection("Daily_Performance").document(f"{athlete_id}_{date_str}").set({
+                    "athleteId":   athlete_id,
+                    "athleteName": athlete_name,
+                    "date":        date_str,
+                    "iri":         iri,
+                    "status":      data.get("status", ""),
+                    "lapses":      lapses,
+                    "latency":     mean_lat,
+                    "wellness":    data.get("wellness"),
+                    "pvt":         pvt,
+                    "timestamp":   firestore.SERVER_TIMESTAMP,
+                    "sync_method": "dedup_repair_v1",
+                }, merge=True)
+
+        print(f"[DEDUP] ✅ {athlete_name}: {deleted_count} duplicados eliminados | fechas afectadas: {len(report)}")
+        return {
+            "status":         "success",
+            "athleteName":    athlete_name,
+            "dry_run":        dry_run,
+            "deleted":        deleted_count,
+            "dates_affected": len(report),
+            "report":         report,
+        }
+
+    except Exception as e:
+        print(f"[DEDUP-ERROR] {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+@https_fn.on_call()
 def manual_register(req: https_fn.CallableRequest) -> dict:
     """
     Registro manual de evaluación desde el Dashboard.
@@ -515,7 +741,11 @@ def manual_register(req: https_fn.CallableRequest) -> dict:
             "fatigueLevel":  req.data.get("fatigueLevel"),
         }
 
-        # Escribir en athletes/{id}/measurements para mantener historial
+        # Escribir en athletes/{id}/measurements para mantener historial.
+        # IMPORTANTE: El trigger 'auto_sync_to_dashboard' detectará esta escritura
+        # y propagará automáticamente los datos a Daily_Performance.
+        # NO se escribe directamente en Daily_Performance aquí para evitar el
+        # doble registro (trigger + escritura directa = 2 documentos idénticos).
         meas_payload = {
             "date":      date_str,
             "timestamp": date_str + "T12:00:00",
@@ -533,28 +763,6 @@ def manual_register(req: https_fn.CallableRequest) -> dict:
         }
         db.collection("athletes").document(athlete_id)\
           .collection("measurements").add(meas_payload)
-
-        # Escribir en Daily_Performance (lo que ve el dashboard)
-        doc_id = f"{athlete_id}_{date_str}"
-        dp_payload = {
-            "athleteId":   athlete_id,
-            "athleteName": athlete_name,
-            "date":        date_str,
-            "iri":         iri,
-            "status":      status,
-            "lapses":      lapses,
-            "latency":     mean_latency,
-            "wellness":    wellness,
-            "pvt": {
-                "metrics": {
-                    "meanLatency": mean_latency,
-                    "lapses":      lapses,
-                }
-            },
-            "timestamp":   firestore.SERVER_TIMESTAMP,
-            "sync_method": "manual_dashboard_entry",
-        }
-        db.collection("Daily_Performance").document(doc_id).set(dp_payload, merge=True)
 
         print(f"[MANUAL] Registro manual creado: {athlete_name} ({date_str}) | IRI: {iri} | Status: {status}")
         return {
@@ -575,106 +783,350 @@ def manual_register(req: https_fn.CallableRequest) -> dict:
 
 @https_fn.on_call()
 def list_dashboard_users(req: https_fn.CallableRequest) -> dict:
-    """Lista todos los usuarios de Firebase Auth para el panel de administración."""
+    """Lista todos los usuarios de Firebase Auth. Requiere rol SUPER_ADMIN."""
     from firebase_admin import auth
-    
-    # Solo ADMIN puede listar
-    # En un entorno estricto verificaríamos el token, pero para la demo inicial validamos desde cliente.
-    # user_role = req.auth.token.get('role') si req.auth else None
-    
+
+    _require_role(req, ROLES_ADMIN_ONLY)
+
     try:
         users = []
         page = auth.list_users()
         while page:
             for user in page.users:
-                role = user.custom_claims.get('role', 'COACH') if user.custom_claims else 'COACH'
-                team = user.custom_claims.get('team', '') if user.custom_claims else ''
+                claims = user.custom_claims or {}
+                role = claims.get('role', 'COACH')
+                team = claims.get('team', '')
+                blocked = claims.get('blocked', False)
                 # Identificar si es la cuenta DEMO
                 if user.email == 'demo@imedpredictor.com':
                     role = 'DEMO'
-                    
+
                 users.append({
-                    "uid": user.uid,
-                    "email": user.email,
-                    "role": role,
-                    "team": team,
+                    "uid":          user.uid,
+                    "email":        user.email,
+                    "role":         role,
+                    "team":         team,
+                    "blocked":      blocked,
                     "creationTime": user.user_metadata.creation_timestamp
                 })
             page = page.get_next_page()
-            
+
+        _log_audit("LIST_USERS", req.auth.uid, f"{len(users)} usuarios listados")
         return {"status": "success", "users": users}
+    except https_fn.HttpsError:
+        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 @https_fn.on_call()
 def create_dashboard_user(req: https_fn.CallableRequest) -> dict:
-    """Crea un usuario en Firebase Auth y le asigna un rol."""
+    """Crea un usuario en Firebase Auth y le asigna un rol. Requiere SUPER_ADMIN."""
     from firebase_admin import auth
-    
-    email = req.data.get("email")
-    password = req.data.get("password")
-    role = req.data.get("role", "COACH")
-    team = req.data.get("team", "")
-    
+
+    _require_role(req, ROLES_ADMIN_ONLY)
+
+    email    = req.data.get("email", "").strip()
+    password = req.data.get("password", "")
+    role     = req.data.get("role", ROLE_COACH)
+    team     = req.data.get("team", "")
+
+    # Validar que el rol solicitado sea uno de los roles válidos del sistema
+    valid_roles = {ROLE_DEPORTISTA, ROLE_COACH, ROLE_PSICOLOGO, ROLE_SUPER_ADMIN}
+    if role not in valid_roles:
+        return {"status": "error", "message": f"Rol inválido: '{role}'. Roles válidos: {valid_roles}"}
+
     if not email or not password:
         return {"status": "error", "message": "Email y contraseña requeridos."}
-        
+
     try:
-        user = auth.create_user(
-            email=email,
-            password=password
-        )
-        claims = {'role': role}
+        user = auth.create_user(email=email, password=password)
+        claims = {"role": role}
         if team:
-            claims['team'] = team
-            
+            claims["team"] = team
+
         auth.set_custom_user_claims(user.uid, claims)
+
+        _log_audit(
+            action="CREATE_USER",
+            actor_uid=req.auth.uid,
+            target=email,
+            details={"role": role, "team": team, "new_uid": user.uid}
+        )
         return {"status": "success", "message": f"Usuario {email} creado con rol {role}."}
+    except https_fn.HttpsError:
+        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 @https_fn.on_call()
 def delete_dashboard_user(req: https_fn.CallableRequest) -> dict:
-    """Elimina un usuario de Firebase Auth."""
+    """Elimina un usuario de Firebase Auth. Requiere SUPER_ADMIN."""
     from firebase_admin import auth
-    uid = req.data.get("uid")
-    
+
+    _require_role(req, ROLES_ADMIN_ONLY)
+
+    uid = req.data.get("uid", "").strip()
     if not uid:
         return {"status": "error", "message": "UID requerido."}
-        
+
     try:
-        # Prevenir borrar la cuenta demo si está hardcodeada
+        # Prevenir borrar la cuenta demo
         user = auth.get_user(uid)
         if user.email == 'demo@imedpredictor.com':
             return {"status": "error", "message": "No se puede eliminar la cuenta DEMO oficial."}
-            
+
         auth.delete_user(uid)
+
+        _log_audit(
+            action="DELETE_USER",
+            actor_uid=req.auth.uid,
+            target=uid,
+            details={"deleted_email": user.email}
+        )
         return {"status": "success", "message": "Usuario eliminado."}
+    except https_fn.HttpsError:
+        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+
 @https_fn.on_call()
 def update_dashboard_user_team(req: https_fn.CallableRequest) -> dict:
-    """Actualiza la plantilla (team) asignada a un usuario."""
+    """Actualiza la plantilla (team) asignada a un usuario. Requiere SUPER_ADMIN."""
     from firebase_admin import auth
-    uid = req.data.get("uid")
+
+    _require_role(req, ROLES_ADMIN_ONLY)
+
+    uid  = req.data.get("uid", "").strip()
     team = req.data.get("team", "")
-    
+
     if not uid:
         return {"status": "error", "message": "UID requerido."}
-        
+
     try:
-        user = auth.get_user(uid)
+        user   = auth.get_user(uid)
         claims = user.custom_claims or {}
-        
+
         if team:
             claims['team'] = team
         else:
             claims.pop('team', None)
-            
+
         auth.set_custom_user_claims(uid, claims)
+
+        _log_audit(
+            action="UPDATE_USER_TEAM",
+            actor_uid=req.auth.uid,
+            target=uid,
+            details={"new_team": team or "(sin equipo)", "email": user.email}
+        )
         return {"status": "success", "message": "Plantilla actualizada con éxito."}
+    except https_fn.HttpsError:
+        raise
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# ==============================================================================
+# SUBSCRIPTION MANAGEMENT (Control de Acceso por Suscripción)
+# ==============================================================================
+
+@scheduler_fn.on_schedule(schedule="every 24 hours")
+def check_expired_subscriptions(event: scheduler_fn.ScheduledEvent) -> None:
+    """
+    Cron diario: verifica suscripciones y bloquea automáticamente cuentas expiradas.
+
+    Flujo:
+    1. Lee todos los documentos de la colección subscriptions/{uid}.
+    2. Si trial_end o plan_end < hoy → añade custom_claim {blocked: true} al usuario.
+    3. Si el usuario ya estaba bloqueado y su suscripción está vigente → desbloquea.
+    4. Registra cada cambio en audit_log.
+
+    Colección subscriptions/{uid}:
+        plan:        "TRIAL" | "BASIC" | "PRO" | "ENTERPRISE"
+        trial_end:   "YYYY-MM-DD" (solo para plan TRIAL)
+        plan_end:    "YYYY-MM-DD" (para planes pagos)
+        status:      "ACTIVE" | "EXPIRED" | "BLOCKED"
+    """
+    from firebase_admin import auth as fb_auth
+
+    db = firestore.client()
+    today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+
+    print(f"[SUBSCRIPTION-CRON] Verificando suscripciones activas. Fecha: {today_str}")
+
+    blocked_count   = 0
+    unblocked_count = 0
+
+    try:
+        subs = db.collection("subscriptions").stream()
+        for sub_doc in subs:
+            uid  = sub_doc.id
+            data = sub_doc.to_dict()
+
+            plan      = data.get("plan", "TRIAL")
+            trial_end = data.get("trial_end", "")
+            plan_end  = data.get("plan_end", "")
+            status    = data.get("status", "ACTIVE")
+
+            # Determinar fecha de expiración según el tipo de plan
+            expiry_date = plan_end if plan != "TRIAL" else trial_end
+
+            if not expiry_date:
+                continue  # Sin fecha de expiración → plan indefinido (ej. ENTERPRISE manual)
+
+            is_expired = expiry_date < today_str
+
+            try:
+                user = fb_auth.get_user(uid)
+                current_claims = user.custom_claims or {}
+                is_currently_blocked = current_claims.get("blocked", False)
+
+                if is_expired and not is_currently_blocked:
+                    # Bloquear cuenta expirada
+                    current_claims["blocked"] = True
+                    fb_auth.set_custom_user_claims(uid, current_claims)
+                    db.collection("subscriptions").document(uid).update({"status": "EXPIRED"})
+                    _log_audit(
+                        action="AUTO_BLOCK_EXPIRED",
+                        actor_uid="SYSTEM",
+                        target=uid,
+                        details={"plan": plan, "expired_on": expiry_date, "email": user.email}
+                    )
+                    blocked_count += 1
+                    print(f"[SUBSCRIPTION-CRON] Bloqueado: {user.email} (expiró: {expiry_date})")
+
+                elif not is_expired and is_currently_blocked and status == "ACTIVE":
+                    # Desbloquear cuenta reactivada manualmente
+                    current_claims["blocked"] = False
+                    fb_auth.set_custom_user_claims(uid, current_claims)
+                    _log_audit(
+                        action="AUTO_UNBLOCK_REACTIVATED",
+                        actor_uid="SYSTEM",
+                        target=uid,
+                        details={"plan": plan, "plan_end": expiry_date, "email": user.email}
+                    )
+                    unblocked_count += 1
+                    print(f"[SUBSCRIPTION-CRON] Desbloqueado: {user.email} (vigente hasta: {expiry_date})")
+
+            except Exception as user_err:
+                print(f"[SUBSCRIPTION-CRON-ERROR] Error procesando uid={uid}: {user_err}")
+
+        print(f"[SUBSCRIPTION-CRON] Completado. Bloqueados: {blocked_count} | Desbloqueados: {unblocked_count}")
+
+    except Exception as e:
+        print(f"[SUBSCRIPTION-CRON-FATAL] Error leyendo subscriptions: {e}")
+
+
+@https_fn.on_call()
+def create_subscription(req: https_fn.CallableRequest) -> dict:
+    """
+    Crea o renueva la suscripción de un usuario. Requiere SUPER_ADMIN.
+
+    Parámetros:
+        uid:        UID del usuario en Firebase Auth
+        plan:       "TRIAL" | "BASIC" | "PRO" | "ENTERPRISE"
+        trial_days: Días de prueba (solo para plan TRIAL, default: 14)
+        plan_days:  Días de vigencia del plan pago (default: 30)
+    """
+    _require_role(req, ROLES_ADMIN_ONLY)
+
+    uid        = req.data.get("uid", "").strip()
+    plan       = req.data.get("plan", "TRIAL")
+    trial_days = int(req.data.get("trial_days", 14))
+    plan_days  = int(req.data.get("plan_days", 30))
+
+    if not uid:
+        return {"status": "error", "message": "UID requerido."}
+
+    valid_plans = {"TRIAL", "BASIC", "PRO", "ENTERPRISE"}
+    if plan not in valid_plans:
+        return {"status": "error", "message": f"Plan inválido: '{plan}'. Planes válidos: {valid_plans}"}
+
+    from firebase_admin import auth as fb_auth
+    db = firestore.client()
+
+    try:
+        user = fb_auth.get_user(uid)
+
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        sub_data = {"plan": plan, "status": "ACTIVE", "created_at": firestore.SERVER_TIMESTAMP}
+
+        if plan == "TRIAL":
+            end_date = today + datetime.timedelta(days=trial_days)
+            sub_data["trial_end"] = end_date.strftime("%Y-%m-%d")
+            sub_data["plan_end"]  = ""
+        else:
+            end_date = today + datetime.timedelta(days=plan_days)
+            sub_data["plan_end"]  = end_date.strftime("%Y-%m-%d")
+            sub_data["trial_end"] = ""
+
+        db.collection("subscriptions").document(uid).set(sub_data, merge=True)
+
+        # Desbloquear cuenta si estaba bloqueada (re-activación de suscripción)
+        current_claims = user.custom_claims or {}
+        if current_claims.get("blocked", False):
+            current_claims["blocked"] = False
+            fb_auth.set_custom_user_claims(uid, current_claims)
+
+        _log_audit(
+            action="CREATE_SUBSCRIPTION",
+            actor_uid=req.auth.uid,
+            target=uid,
+            details={"plan": plan, "end_date": end_date.strftime("%Y-%m-%d"), "email": user.email}
+        )
+        return {
+            "status":   "success",
+            "message":  f"Suscripción {plan} creada para {user.email}. Vigente hasta: {end_date}.",
+            "plan":     plan,
+            "end_date": end_date.strftime("%Y-%m-%d"),
+        }
+    except https_fn.HttpsError:
+        raise
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@https_fn.on_call()
+def update_subscription_status(req: https_fn.CallableRequest) -> dict:
+    """
+    Bloquea o desbloquea manualmente la cuenta de un usuario. Requiere SUPER_ADMIN.
+    Útil para suspensiones manuales o reactivaciones urgentes.
+
+    Parámetros:
+        uid:     UID del usuario
+        blocked: true para bloquear, false para desbloquear
+        reason:  Motivo de la acción (opcional, para audit log)
+    """
+    _require_role(req, ROLES_ADMIN_ONLY)
+
+    from firebase_admin import auth as fb_auth
+
+    uid     = req.data.get("uid", "").strip()
+    blocked = req.data.get("blocked", True)
+    reason  = req.data.get("reason", "Acción manual del administrador")
+
+    if not uid:
+        return {"status": "error", "message": "UID requerido."}
+
+    try:
+        user   = fb_auth.get_user(uid)
+        claims = user.custom_claims or {}
+        claims["blocked"] = bool(blocked)
+        fb_auth.set_custom_user_claims(uid, claims)
+
+        action = "MANUAL_BLOCK" if blocked else "MANUAL_UNBLOCK"
+        _log_audit(
+            action=action,
+            actor_uid=req.auth.uid,
+            target=uid,
+            details={"email": user.email, "reason": reason}
+        )
+        estado = "bloqueada" if blocked else "desbloqueada"
+        return {"status": "success", "message": f"Cuenta {user.email} {estado} exitosamente."}
+    except https_fn.HttpsError:
+        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}

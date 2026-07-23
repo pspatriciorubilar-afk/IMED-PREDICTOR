@@ -1,14 +1,19 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:isar/isar.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../domain/pvt_session.dart';
-import '../../../core/biometrics/snc_engine.dart';
 
 /**
  * MOTOR DE SINCRONIZACIÓN ÉLITE (IMED PREDICTOR)
  * Dominio: cognitive.neuro.elitemindpro.com
  * Protocolo: HTTPS (SSL/TLS 1.3)
+ *
+ * NOTA ARQUITECTURAL:
+ * Este DataSource se encarga EXCLUSIVAMENTE de sincronizar con la API VPS propia.
+ * La escritura a Firebase Firestore (measurements + Daily_Performance) la maneja
+ * SyncService._executeFirestoreSync() llamado desde BiometricFlowCoordinator.
+ * Tener dos escrituras a measurements/ generaba un doble registro porque el trigger
+ * Cloud Function 'auto_sync_to_dashboard' se disparaba dos veces por sesión.
  */
 class PvtDataSource {
   final Isar isar;
@@ -31,6 +36,9 @@ class PvtDataSource {
         if (hour >= 5 && hour < 11) sessionTag = "MORNING";
         if (hour >= 15) sessionTag = "PERFORMANCE";
 
+        // ── SINCRONIZACIÓN CON API VPS PROPIA ────────────────────────────────
+        // Esta es la única responsabilidad de PvtDataSource.
+        // Firestore es manejado por SyncService para evitar duplicados.
         final response = await http.post(
           Uri.parse("$baseUrl/pvt/sync"),
           headers: {
@@ -43,80 +51,24 @@ class PvtDataSource {
             "meanLatency": session.meanLatency,
             "lapsesCount": session.lapsesCount,
             "falseStarts": session.falseStarts,
-            "testType": "PVT_STANDARD"
+            "testType": "PVT_STANDARD",
+            "sessionTag": sessionTag,
           })
         ).timeout(const Duration(seconds: 10));
         
         if (response.statusCode == 201 || response.statusCode == 202) {
-          // Sincronización exitosa con API propia
           await _markAsSynced(session);
-          print("✅ [SYNC-SUCCESS] PVT ID ${session.id} sincronizado con API.");
+          print("✅ [SYNC-SUCCESS] PVT ID ${session.id} sincronizado con API VPS.");
         } else {
           print("❌ [SYNC-ERROR] Servidor API respondió con código ${response.statusCode}");
         }
 
-        // --- NUEVO: Sincronización con Firebase Firestore ---
-        await _syncToFirestore(session, athleteId);
-
       } catch (e) {
-        print("❌ [SYNC-FAILURE] Error de conexión: $e");
+        print("❌ [SYNC-FAILURE] Error de conexión con API VPS: $e");
+        // No se re-lanza: el dato ya está en Firestore gracias a SyncService.
       }
     }
   }
-
-  Future<void> _syncToFirestore(PvtSession session, String athleteId) async {
-    try {
-      final firestore = FirebaseFirestore.instance;
-      final dateStr = session.timestamp.toLocal().toString().split(' ')[0]; // YYYY-MM-DD
-
-      // Calcular IRI real desde los tiempos de reacción (corrige el TODO anterior de iri:0)
-      final iriScore = SNCEngine.calculateIRI(0.0, session.rawReactionTimes);
-      final statusSNC = SNCEngine.getStatus(iriScore);
-
-      // ── Estructura requerida por auto_sync_to_dashboard Cloud Function ──
-      // Colección: athletes/{athleteId}/measurements/{auto-id}
-      // El trigger de Firestore detecta la creación y sincroniza a Daily_Performance.
-      await firestore
-          .collection('athletes')
-          .doc(athleteId)
-          .collection('measurements')
-          .add({
-        // Identificación temporal
-        "date":      dateStr,
-        "timestamp": session.timestamp.toIso8601String(),
-
-        // Resultado IRI calculado por SNCEngine (NO hardcodeado a 0)
-        "iri":    iriScore,
-        "status": statusSNC,
-
-        // Objeto PVT — estructura que lee la Cloud Function y el worker Ex-Gaussiano
-        "pvt": {
-          "metrics": {
-            "meanLatency": session.meanLatency,
-            "lapses":      session.lapsesCount,
-            "falseStarts": session.falseStarts,
-            // Ambas claves para compatibilidad con pvt_exgauss_worker.py
-            "trials":          session.rawReactionTimes,
-            "rawReactionTimes": session.rawReactionTimes,
-            "n_trials":        session.rawReactionTimes.length,
-          }
-        },
-
-        // Wellness — se rellenará cuando se integre el flujo biológico completo
-        "wellness": null,
-
-        // Metadatos
-        "sync_method": "flutter_pvt_data_source_v2",
-        "pvt_protocol": "PVT-B-30",
-        "syncedAt": FieldValue.serverTimestamp(),
-      });
-
-      print("🔥 [FIREBASE] Sesión guardada en athletes/$athleteId/measurements/ (${session.rawReactionTimes.length} trials | IRI: $iriScore)");
-    } catch (e) {
-      print("🔥 [FIREBASE-ERROR] Error al guardar en Firestore: $e");
-    }
-  }
-
 
   Future<void> _markAsSynced(PvtSession session) async {
     await isar.writeTxn(() async {

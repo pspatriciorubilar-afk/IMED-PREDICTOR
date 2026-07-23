@@ -216,10 +216,13 @@ class SyncService {
       }, SetOptions(merge: true));
 
       // 2. Referencia a la Medición (usamos .doc() para autogenerar ID)
-      final String dateStr = "${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')}";
+      // CRÍTICO: Usar .toLocal() para que la fecha refleje el día calendario
+      // del atleta y no la fecha UTC (que puede ser diferente en zonas -4 o más).
+      final localTimestamp = timestamp.toLocal();
+      final String dateStr = "${localTimestamp.year}-${localTimestamp.month.toString().padLeft(2, '0')}-${localTimestamp.day.toString().padLeft(2, '0')}";
       final measurementRef = firestore.collection('athletes').doc(athleteId).collection('measurements').doc();
       batch.set(measurementRef, {
-        "timestamp": timestamp.toIso8601String(),
+        "timestamp": localTimestamp.toIso8601String(),
         "date": dateStr,
         "iri": iriScore,
         "status": statusSNC,
@@ -251,6 +254,8 @@ class SyncService {
       });
 
       // 3. Referencia a Daily_Performance (incluir wellness + pvt para el dashboard)
+      // El ID del documento usa dateStr local para que coincida con el filtro 'today'
+      // del dashboard que también usa la fecha local del navegador.
       final dailyRef = firestore.collection('Daily_Performance').doc('${athleteId}_$dateStr');
       batch.set(dailyRef, {
         "athleteId": athleteId,

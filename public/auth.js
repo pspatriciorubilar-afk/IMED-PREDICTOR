@@ -3,12 +3,100 @@
    Firebase Auth — Demo Login Controller
    ════════════════════════════════════════════ */
 
+/* ╔══════════════════════════════════════════════════════════════╗
+   ║  ⚠️  CUENTA DEMO — NO MODIFICAR ⚠️                           ║
+   ║                                                              ║
+   ║  Email   : demo@imedpredictor.com                            ║
+   ║  Password: ImedDemo2026!                                     ║
+   ║  Role    : DEMO                                              ║
+   ║                                                              ║
+   ║  Esta cuenta es la cuenta OFICIAL para la postulación        ║
+   ║  Capital Semilla CORFO. NO cambiar contraseña, email ni      ║
+   ║  rol. NO deshabilitar. NO eliminar. Si se necesita           ║
+   ║  restablecer, usar scratch/restore_demo.py.                  ║
+   ╚══════════════════════════════════════════════════════════════╝ */
+
 (function () {
   'use strict';
 
-  // ─── Credenciales demo (visibles en pantalla para el evaluador) ───
+  // ─── Credenciales demo ───
+  // ⚠️ NO MODIFICAR — cuenta oficial para postulación Capital Semilla
   const DEMO_EMAIL    = 'demo@imedpredictor.com';
   const DEMO_PASSWORD = 'ImedDemo2026!';
+
+  // ─── Inyectar estilos del modal de logout ───
+  const style = document.createElement('style');
+  style.textContent = `
+    #logout-confirm-overlay {
+      position: fixed; inset: 0; z-index: 99999;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      animation: fadeInOverlay 0.15s ease;
+    }
+    @keyframes fadeInOverlay { from { opacity:0; } to { opacity:1; } }
+    #logout-confirm-box {
+      background: #0d1117;
+      border: 1px solid rgba(255,77,77,0.3);
+      border-radius: 16px;
+      padding: 32px 36px;
+      max-width: 340px; width: 90%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.7), 0 0 40px rgba(255,77,77,0.08) inset;
+      animation: slideUpBox 0.2s cubic-bezier(0.16,1,0.3,1);
+    }
+    @keyframes slideUpBox { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+    #logout-confirm-box .lco-icon  { font-size:32px; margin-bottom:12px; }
+    #logout-confirm-box .lco-title { font-size:17px; font-weight:700; color:#fff; margin-bottom:8px; }
+    #logout-confirm-box .lco-sub   { font-size:13px; color:#636375; margin-bottom:24px; line-height:1.5; }
+    #logout-confirm-box .lco-btns  { display:flex; gap:10px; justify-content:center; }
+    #logout-confirm-box .lco-cancel {
+      flex:1; padding:11px 0; border-radius:10px; border:1px solid rgba(255,255,255,0.1);
+      background:rgba(255,255,255,0.05); color:#aaa; font-size:14px; font-weight:600;
+      cursor:pointer; transition:all 0.2s; font-family:inherit;
+    }
+    #logout-confirm-box .lco-cancel:hover { background:rgba(255,255,255,0.1); color:#fff; }
+    #logout-confirm-box .lco-ok {
+      flex:1; padding:11px 0; border-radius:10px; border:none;
+      background:linear-gradient(135deg,#c0392b,#FF4D4D); color:#fff;
+      font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s; font-family:inherit;
+    }
+    #logout-confirm-box .lco-ok:hover { filter:brightness(1.15); transform:translateY(-1px); }
+  `;
+  document.head.appendChild(style);
+
+  // ─── Modal de confirmación de logout (reemplaza confirm()) ───
+  function showLogoutConfirm(onConfirm) {
+    const overlay = document.createElement('div');
+    overlay.id = 'logout-confirm-overlay';
+    overlay.innerHTML = `
+      <div id="logout-confirm-box">
+        <div class="lco-icon">⏻</div>
+        <div class="lco-title">Cerrar Sesión</div>
+        <div class="lco-sub">¿Estás seguro de que deseas salir del sistema?</div>
+        <div class="lco-btns">
+          <button class="lco-cancel" id="lco-cancel-btn">Cancelar</button>
+          <button class="lco-ok" id="lco-ok-btn">Sí, salir</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    document.getElementById('lco-ok-btn').onclick = function () {
+      overlay.remove();
+      onConfirm();
+    };
+    document.getElementById('lco-cancel-btn').onclick = function () {
+      overlay.remove();
+    };
+    // Click fuera = cancelar
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay) overlay.remove();
+    });
+    // Escape = cancelar
+    document.addEventListener('keydown', function escHandler(e) {
+      if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+    });
+  }
 
   // ─── Esperar a que Firebase esté listo ───
   function waitForFirebase(cb, retries = 20) {
@@ -22,18 +110,16 @@
   }
 
   waitForFirebase(function () {
-    const auth       = firebase.auth();
+    const auth        = firebase.auth();
     const loginScreen = document.getElementById('login-screen');
-    const appShell   = document.getElementById('app-shell');
+    const appShell    = document.getElementById('app-shell');
 
     // ─── Estado de autenticación ───
     auth.onAuthStateChanged(function (user) {
       if (user) {
-        // Usuario autenticado → ocultar login, mostrar app
         if (loginScreen) loginScreen.classList.add('hidden');
         if (appShell)    appShell.style.display = '';
       } else {
-        // Sin sesión → mostrar login, ocultar app
         if (loginScreen) loginScreen.classList.remove('hidden');
         if (appShell)    appShell.style.display = 'none';
       }
@@ -45,18 +131,15 @@
       const passInput  = document.getElementById('login-password');
       if (emailInput) emailInput.value = DEMO_EMAIL;
       if (passInput)  passInput.value  = DEMO_PASSWORD;
-      // Pequeño efecto visual de confirmación
       const btn = document.getElementById('demo-fill-btn');
       if (btn) {
         btn.textContent = '✓ Listo — presiona Ingresar';
-        btn.style.background = 'rgba(50, 215, 75, 0.15)';
+        btn.style.background  = 'rgba(50, 215, 75, 0.15)';
         btn.style.borderColor = 'rgba(50, 215, 75, 0.3)';
-        btn.style.color = '#32D74B';
+        btn.style.color       = '#32D74B';
         setTimeout(() => {
           btn.textContent = '↓ Usar credenciales demo';
-          btn.style.background = '';
-          btn.style.borderColor = '';
-          btn.style.color = '';
+          btn.style.background = btn.style.borderColor = btn.style.color = '';
         }, 2500);
       }
     };
@@ -72,30 +155,25 @@
         const btn      = document.getElementById('login-submit-btn');
         const errorEl  = document.getElementById('login-error');
 
-        // Limpiar error previo
         errorEl.classList.remove('visible');
         errorEl.textContent = '';
-
-        // Estado de carga
-        btn.disabled     = true;
-        btn.innerHTML    = '<span class="login-btn-spinner"></span> Autenticando…';
+        btn.disabled  = true;
+        btn.innerHTML = '<span class="login-btn-spinner"></span> Autenticando…';
 
         try {
           await auth.signInWithEmailAndPassword(email, password);
-          // onAuthStateChanged se encargará de la transición
         } catch (err) {
           btn.disabled  = false;
           btn.innerHTML = '⚡ Ingresar al Sistema';
 
           let msg = 'Error de autenticación. Verifica las credenciales.';
-          if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-            msg = 'Credenciales incorrectas. Usa las credenciales demo indicadas arriba.';
+          if (['auth/user-not-found','auth/wrong-password','auth/invalid-credential'].includes(err.code)) {
+            msg = 'Credenciales incorrectas. Verifica tu email y contraseña.';
           } else if (err.code === 'auth/too-many-requests') {
             msg = 'Demasiados intentos fallidos. Espera unos minutos e intenta nuevamente.';
           } else if (err.code === 'auth/network-request-failed') {
             msg = 'Sin conexión a internet. Verifica tu red e intenta nuevamente.';
           }
-
           errorEl.textContent = msg;
           errorEl.classList.add('visible');
         }
@@ -104,10 +182,29 @@
 
     // ─── Logout ───
     window.imedLogout = function () {
-      auth.signOut().then(() => {
-        window.location.reload();
-      });
+      auth.signOut().then(() => { window.location.reload(); });
     };
+
+    // ─── Inyectar botón logout en el topbar ───
+    function injectLogoutButton() {
+      const topbarRight = document.querySelector('.topbar-right');
+      if (!topbarRight) { setTimeout(injectLogoutButton, 100); return; }
+      if (document.getElementById('logout-btn')) return;
+
+      const logoutBtn = document.createElement('button');
+      logoutBtn.id        = 'logout-btn';
+      logoutBtn.className = 'btn-icon';
+      logoutBtn.title     = 'Cerrar sesión';
+      logoutBtn.innerHTML = '⏻';
+      logoutBtn.style.cssText = 'color:#636375; font-size:18px; transition:color 0.2s; cursor:pointer;';
+      logoutBtn.onmouseover = function() { this.style.color = '#FF4D4D'; };
+      logoutBtn.onmouseout  = function() { this.style.color = '#636375'; };
+      logoutBtn.onclick = function () {
+        showLogoutConfirm(function () { window.imedLogout(); });
+      };
+      topbarRight.appendChild(logoutBtn);
+    }
+    injectLogoutButton();
   });
 
 })();
