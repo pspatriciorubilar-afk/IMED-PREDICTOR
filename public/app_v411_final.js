@@ -894,7 +894,7 @@ window.saveClinicalRecord = async function(event, athleteId) {
     };
 
     try {
-        await db.collection('athletes').document(athleteId).update({ clinical_record });
+        await db.collection('athletes').doc(athleteId).update({ clinical_record });
         
         // Actualizar el caché local
         const localAth = gAthletesCache.find(x => x.id === athleteId);

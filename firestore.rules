@@ -19,15 +19,15 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return getRole() == 'SUPER_ADMIN';
+      return getRole() == 'SUPER_ADMIN' || getRole() == 'ADMIN';
     }
 
     function isPsicologo() {
-      return isSuperAdmin() || getRole() == 'PSICOLOGO';
+      return isSuperAdmin() || getRole() == 'PSICOLOGO' || getRole() == 'COACH' || getRole() == 'DEMO';
     }
 
     function isCoach() {
-      return isPsicologo() || getRole() == 'COACH';
+      return isPsicologo();
     }
 
     function isNotBlocked() {
