@@ -707,45 +707,211 @@ async function openAthleteProfile(id) {
 
     document.getElementById('prof-static-name').textContent = a.fullName;
     document.getElementById('prof-static-pos').textContent = a.position || 'Deportista de Élite';
+
+    // Obtener clinical record con valores por defecto
+    const cr = a.clinical_record || {};
+    const bloodType = cr.blood_type || '';
+    const chronicPath = cr.chronic_pathologies || '';
+    const allergies = cr.allergies || '';
+    const medications = cr.medications || '';
+    const surgeries = cr.surgeries || '';
+    const lesions = cr.lesions_history || '';
+    const antro = cr.antropometria || {};
+    const wKg = antro.weight_kg || '';
+    const hCm = antro.height_cm || '';
+    const fatPct = antro.fat_percent || '';
+    const musPct = antro.muscle_percent || '';
     
     document.getElementById('tab-container-ficha').innerHTML = `
-        <div class="grid-2col" style="margin-top:20px; gap:15px">
-            <div class="panel glass" style="border-left: 3px solid var(--blue)">
-                <div class="panel-label">EQUIPO ACTUAL</div>
-                <div class="panel-title">${a.team || 'Sin Equipo'}</div>
-                <button class="btn-mini" onclick="promptTeamChange('${a.id}', '${a.team || ''}')" style="margin-top:10px; width:100%">⚙️ Cambiar Plantilla</button>
+        <!-- Tabs Header -->
+        <div class="profile-tabs">
+            <button class="profile-tab-btn active" id="tab-btn-performance" onclick="switchProfileTab('performance')">📊 Rendimiento</button>
+            <button class="profile-tab-btn" id="tab-btn-clinical" onclick="switchProfileTab('clinical')">📋 Ficha Clínica</button>
+        </div>
+
+        <!-- Tab Content: Performance (Antes por defecto) -->
+        <div class="profile-tab-content active" id="tab-content-performance">
+            <div class="grid-2col" style="gap:15px">
+                <div class="panel glass" style="border-left: 3px solid var(--blue)">
+                    <div class="panel-label">EQUIPO ACTUAL</div>
+                    <div class="panel-title">${a.team || 'Sin Equipo'}</div>
+                    <button class="btn-mini" onclick="promptTeamChange('${a.id}', '${a.team || ''}')" style="margin-top:10px; width:100%">⚙️ Cambiar Plantilla</button>
+                </div>
+                <div class="panel glass" style="border-left: 3px solid var(--green)">
+                    <div class="panel-label">ESTADO DE SALUD</div>
+                    <div class="panel-title">DISPONIBLE</div>
+                </div>
             </div>
-            <div class="panel glass" style="border-left: 3px solid var(--green)">
-                <div class="panel-label">ESTADO DE SALUD</div>
-                <div class="panel-title">DISPONIBLE</div>
+
+            <div class="panel-header" style="margin-top:25px">
+                <div>
+                    <div class="panel-label">MÉTRICAS HISTÓRICAS (PROMEDIO)</div>
+                    <h2 class="panel-title">Perfil Biométrico de Rendimiento</h2>
+                </div>
+            </div>
+
+            <div class="modal-grid-stats" style="margin-top:15px">
+                <div class="stat-card-mini"><div class="val">${avgIri}</div><div class="lbl">PROM. IRI</div></div>
+                <div class="stat-card-mini"><div class="val">${avgLat}ms</div><div class="lbl">LAT. MEDIA</div></div>
+                <div class="stat-card-mini"><div class="val">${totalEvals}</div><div class="lbl">TOTAL EVALS</div></div>
+            </div>
+
+            <div class="panel glass" style="margin-top:20px">
+                <div class="panel-label">NOTAS DE SEGUIMIENTO TÉCNICO</div>
+                <p style="font-size:13px; color:var(--text-2); line-height:1.5">${a.notes || 'No hay notas técnicas registradas para este atleta. Utilice este espacio para documentar observaciones de campo o recomendaciones de rendimiento.'}</p>
+            </div>
+            
+            <div style="margin-top:20px; display:flex; gap:10px">
+                <button class="btn-primary" onclick="viewAthleteTrends('${a.id}')" style="flex:1; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue)">📊 Ver Análisis de Tendencia</button>
+                <button class="btn-primary" onclick="exportAthletePDF('${a.id}')" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border)">📄 Exportar Reporte PDF</button>
             </div>
         </div>
 
-        <div class="panel-header" style="margin-top:25px">
-            <div>
-                <div class="panel-label">MÉTRICAS HISTÓRICAS (PROMEDIO)</div>
-                <h2 class="panel-title">Perfil Biométrico de Rendimiento</h2>
-            </div>
-        </div>
+        <!-- Tab Content: Clinical Record [NUEVO] -->
+        <div class="profile-tab-content" id="tab-content-clinical">
+            <form id="clinical-record-form" onsubmit="saveClinicalRecord(event, '${a.id}')">
+                <div class="clinical-grid">
+                    
+                    <!-- Sección Médica General -->
+                    <div>
+                        <div class="clinical-section-title">🏥 Antecedentes Médicos Generales</div>
+                        <div class="clinical-field-group">
+                            <label class="form-label">Grupo Sanguíneo</label>
+                            <input type="text" id="cr-blood" class="input-glass w-full" placeholder="ej: O Rh+" value="${bloodType}" />
+                        </div>
+                        <div class="clinical-field-group">
+                            <label class="form-label">Alergias Conocidas</label>
+                            <input type="text" id="cr-allergies" class="input-glass w-full" placeholder="Alergias a medicamentos, alimentos, etc." value="${allergies}" />
+                        </div>
+                        <div class="clinical-field-group">
+                            <label class="form-label">Patologías Crónicas</label>
+                            <input type="text" id="cr-chronic" class="input-glass w-full" placeholder="ej: Asma, Diabetes, Hipertensión" value="${chronicPath}" />
+                        </div>
+                        <div class="clinical-field-group">
+                            <label class="form-label">Medicamentos en Uso Permanente</label>
+                            <input type="text" id="cr-meds" class="input-glass w-full" placeholder="Fármacos o suplementos recetados" value="${medications}" />
+                        </div>
+                    </div>
 
-        <div class="modal-grid-stats" style="margin-top:15px">
-            <div class="stat-card-mini"><div class="val">${avgIri}</div><div class="lbl">PROM. IRI</div></div>
-            <div class="stat-card-mini"><div class="val">${avgLat}ms</div><div class="lbl">LAT. MEDIA</div></div>
-            <div class="stat-card-mini"><div class="val">${totalEvals}</div><div class="lbl">TOTAL EVALS</div></div>
-        </div>
+                    <!-- Sección Antropométrica -->
+                    <div>
+                        <div class="clinical-section-title">⚖️ Mediciones Antropométricas</div>
+                        <div class="clinical-input-row" style="margin-bottom: 14px">
+                            <div class="clinical-field-group">
+                                <label class="form-label">Peso (kg)</label>
+                                <input type="number" step="0.1" id="cr-weight" class="input-glass w-full" placeholder="ej: 76.5" value="${wKg}" />
+                            </div>
+                            <div class="clinical-field-group">
+                                <label class="form-label">Estatura (cm)</label>
+                                <input type="number" id="cr-height" class="input-glass w-full" placeholder="ej: 182" value="${hCm}" />
+                            </div>
+                        </div>
+                        <div class="clinical-input-row">
+                            <div class="clinical-field-group">
+                                <label class="form-label">% Grasa Corporal</label>
+                                <input type="number" step="0.1" id="cr-fat" class="input-glass w-full" placeholder="ej: 10.5" value="${fatPct}" />
+                            </div>
+                            <div class="clinical-field-group">
+                                <label class="form-label">% Masa Muscular</label>
+                                <input type="number" step="0.1" id="cr-muscle" class="input-glass w-full" placeholder="ej: 45.2" value="${musPct}" />
+                            </div>
+                        </div>
+                    </div>
 
-        <div class="panel glass" style="margin-top:20px">
-            <div class="panel-label">NOTAS DE SEGUIMIENTO TÉCNICO</div>
-            <p style="font-size:13px; color:var(--text-2); line-height:1.5">${a.notes || 'No hay notas técnicas registradas para este atleta. Utilice este espacio para documentar observaciones de campo o recomendaciones de rendimiento.'}</p>
-        </div>
-        
-        <div style="margin-top:20px; display:flex; gap:10px">
-            <button class="btn-primary" onclick="viewAthleteTrends('${a.id}')" style="flex:1; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue)">📊 Ver Análisis de Tendencia</button>
-            <button class="btn-primary" onclick="exportAthletePDF('${a.id}')" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border)">📄 Exportar Reporte PDF</button>
+                    <!-- Historial Quirúrgico y Deportivo (Ancho completo) -->
+                    <div class="clinical-grid-full">
+                        <div class="clinical-section-title">🤕 Historial de Lesiones y Cirugías</div>
+                        <div class="clinical-field-group">
+                            <label class="form-label">Cirugías Previas</label>
+                            <textarea id="cr-surgeries" class="input-glass w-full" rows="2" placeholder="Describa cirugías previas y año..." style="font-family: inherit; font-size: 13px; padding: 10px">${surgeries}</textarea>
+                        </div>
+                        <div class="clinical-field-group">
+                            <label class="form-label">Historial de Lesiones Deportivas</label>
+                            <textarea id="cr-lesions" class="input-glass w-full" rows="3" placeholder="ej: Esguince ligamento medial rodilla (2024), Desgarro isquiotibiales (2025)..." style="font-family: inherit; font-size: 13px; padding: 10px">${lesions}</textarea>
+                        </div>
+                    </div>
+
+                </div>
+
+                <button type="submit" class="btn-primary w-full" style="margin-top:20px; background: linear-gradient(135deg, var(--blue), #0077ff); border: none;">
+                    💾 Guardar Ficha Clínica
+                </button>
+            </form>
         </div>
     `;
     document.getElementById('athlete-profile-modal').classList.remove('hidden');
 }
+
+// ─── Funciones Globales para las Pestañas y Guardado de Ficha Clínica ───
+window.switchProfileTab = function(tabName) {
+    document.querySelectorAll('.profile-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.profile-tab-content').forEach(content => content.classList.remove('active'));
+
+    if (tabName === 'performance') {
+        document.getElementById('tab-btn-performance').classList.add('active');
+        document.getElementById('tab-content-performance').classList.add('active');
+    } else if (tabName === 'clinical') {
+        document.getElementById('tab-btn-clinical').classList.add('active');
+        document.getElementById('tab-content-clinical').classList.add('active');
+    }
+};
+
+window.saveClinicalRecord = async function(event, athleteId) {
+    event.preventDefault();
+    const btn = event.submitter || event.target.querySelector('button[type="submit"]');
+    const origText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.textContent = 'Guardando ficha...';
+
+    const blood = document.getElementById('cr-blood').value.trim();
+    const allergies = document.getElementById('cr-allergies').value.trim();
+    const chronic = document.getElementById('cr-chronic').value.trim();
+    const meds = document.getElementById('cr-meds').value.trim();
+    const surgeries = document.getElementById('cr-surgeries').value.trim();
+    const lesions = document.getElementById('cr-lesions').value.trim();
+
+    const weight = parseFloat(document.getElementById('cr-weight').value) || null;
+    const height = parseInt(document.getElementById('cr-height').value) || null;
+    const fat = parseFloat(document.getElementById('cr-fat').value) || null;
+    const muscle = parseFloat(document.getElementById('cr-muscle').value) || null;
+
+    const clinical_record = {
+        blood_type: blood,
+        chronic_pathologies: chronic,
+        allergies: allergies,
+        medications: meds,
+        surgeries: surgeries,
+        lesions_history: lesions,
+        antropometria: {
+            weight_kg: weight,
+            height_cm: height,
+            fat_percent: fat,
+            muscle_percent: muscle
+        },
+        last_updated: new Date().toISOString(),
+        updated_by: firebase.auth().currentUser ? firebase.auth().currentUser.email : 'evaluador'
+    };
+
+    try {
+        await db.collection('athletes').document(athleteId).update({ clinical_record });
+        
+        // Actualizar el caché local
+        const localAth = gAthletesCache.find(x => x.id === athleteId);
+        if (localAth) {
+            localAth.clinical_record = clinical_record;
+        }
+
+        showToast('success', 'Ficha Guardada', 'La ficha clínica del deportista ha sido actualizada.');
+    } catch (err) {
+        console.error("Error al guardar ficha clínica:", err);
+        showToast('error', 'Error al Guardar', 'No se pudo guardar la ficha clínica en Firestore.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origText;
+    }
+};
+
 
 async function exportAthletePDF(id) {
     const a = gAthletesCache.find(x => x.id === id);
