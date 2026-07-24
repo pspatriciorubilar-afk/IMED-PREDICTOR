@@ -266,6 +266,7 @@ class SyncService {
         "iri": iriScore,
         "status": statusSNC,
         "lapses": lapses,
+        if (extraProfileData?['tenantId'] != null) "tenantId": extraProfileData?['tenantId'],
         "wellness": {
           "sleepHours":   wellnessData['sleep_hours'],
           "sleepQuality": wellnessData['sleep_quality'],

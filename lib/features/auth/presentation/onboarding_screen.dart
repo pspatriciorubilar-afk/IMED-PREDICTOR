@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:isar/isar.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../domain/user_profile.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _ageController = TextEditingController();
+  final _associationCodeController = TextEditingController();
 
   bool _isLoading = false;
 
@@ -26,25 +28,66 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _finishOnboardingFast() async {
+    final first = _firstNameController.text.trim();
+    final last = _lastNameController.text.trim();
+    final ageStr = _ageController.text.trim();
+    final code = _associationCodeController.text.trim().toUpperCase();
+
+    if (first.isEmpty || last.isEmpty || ageStr.isEmpty || code.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Completa todos los campos, incluyendo el código maestro.")),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
-    final athleteId = _buildAthleteId(
-      _firstNameController.text,
-      _lastNameController.text,
-      _ageController.text,
-    );
+
+    String? tenantId;
+
+    try {
+      // Intentar validar en Firestore si está conectado
+      final querySnap = await FirebaseFirestore.instance
+          .collection('tenants')
+          .where('associationCode', isEqualTo: code)
+          .limit(1)
+          .get()
+          .timeout(const Duration(seconds: 6));
+
+      if (querySnap.docs.isEmpty) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Código maestro inválido o inexistente. Verifica con tu psicólogo o coach.")),
+        );
+        return;
+      }
+
+      tenantId = querySnap.docs[0].id;
+    } catch (e) {
+      // Si falla por red/tiempo (offline), permitimos el paso guardando solo el código
+      // y resolveremos el tenantId después cuando recupere la conexión.
+      print("📡 [ONBOARDING] Error al validar código maestro (offline): $e");
+    }
+
+    final athleteId = _buildAthleteId(first, last, ageStr);
 
     final user = UserProfile(
       athleteId: athleteId,
-      firstName: _firstNameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
-      age: int.tryParse(_ageController.text) ?? 25,
+      firstName: first,
+      lastName: last,
+      age: int.tryParse(ageStr) ?? 25,
       chronotype: Chronotype.intermediate, // Default
       preferredTrainingHour: 7, // Default
       registeredAt: DateTime.now(),
+      associationCode: code,
+      tenantId: tenantId,
     );
 
     await widget.isar.writeTxn(() => widget.isar.collection<UserProfile>().put(user));
-    widget.onComplete();
+    
+    if (mounted) {
+      setState(() => _isLoading = false);
+      widget.onComplete();
+    }
   }
 
   @override
@@ -70,16 +113,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               _buildTextField("Apellido", _lastNameController, TextInputType.name),
               const SizedBox(height: 16),
               _buildTextField("Edad", _ageController, TextInputType.number),
-              const SizedBox(height: 50),
+              const SizedBox(height: 16),
+              _buildTextField("Código Maestro (Coach/Psicólogo)", _associationCodeController, TextInputType.text),
+              const SizedBox(height: 40),
               _buildActionBtn("GUARDAR Y PASAR AL HUB", () {
-                if (_firstNameController.text.isNotEmpty &&
-                    _lastNameController.text.isNotEmpty &&
-                    _ageController.text.isNotEmpty) {
-                  _finishOnboardingFast();
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Completa todos los campos.")));
-                }
+                _finishOnboardingFast();
               }),
             ],
           ),

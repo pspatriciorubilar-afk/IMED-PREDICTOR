@@ -21,6 +21,9 @@ class UserProfile {
   late int preferredWakeMinute; // NUEVO: Minutos para precisión
   late DateTime registeredAt;
 
+  String? associationCode;  // Código maestro de asociación (ej. COLO26)
+  String? tenantId;         // ID de inquilino resuelto
+
   UserProfile({
     required this.athleteId,
     required this.firstName,
@@ -31,6 +34,8 @@ class UserProfile {
     this.preferredTrainingHour = 10,
     this.preferredWakeMinute = 0,
     required this.registeredAt,
+    this.associationCode,
+    this.tenantId,
   });
 
   /// Retorna el nombre completo para mostrar en la UI

@@ -389,12 +389,14 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
 
         db = firestore.client()
         
-        # Obtener nombre del atleta para el panel
+        # Obtener nombre y tenantId del atleta para el panel
         athlete_snap = db.collection("athletes").document(athlete_id).get()
         athlete_name = athlete_id
+        tenant_id = None
         if athlete_snap.exists:
             ad = athlete_snap.to_dict()
             athlete_name = f"{ad.get('firstName','')} {ad.get('lastName','')}".strip()
+            tenant_id = ad.get("tenantId")
 
         # Datos del PVT
         pvt = m_data.get("pvt", {})
@@ -417,6 +419,8 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
             "timestamp": firestore.SERVER_TIMESTAMP,
             "sync_method": "auto_trigger_v411"
         }
+        if tenant_id:
+            payload["tenantId"] = tenant_id
         
         # Guardar en Daily_Performance (merge=True para no borrar datos GPS si ya existen)
         db.collection("Daily_Performance").document(doc_id).set(payload, merge=True)
@@ -783,10 +787,22 @@ def manual_register(req: https_fn.CallableRequest) -> dict:
 
 @https_fn.on_call()
 def list_dashboard_users(req: https_fn.CallableRequest) -> dict:
-    """Lista todos los usuarios de Firebase Auth. Requiere rol SUPER_ADMIN."""
+    """Lista todos los usuarios del inquilino del llamador (o todos si es SUPER_ADMIN)."""
     from firebase_admin import auth
 
-    _require_role(req, ROLES_ADMIN_ONLY)
+    caller_role = _get_caller_role(req)
+    if caller_role != ROLE_SUPER_ADMIN and caller_role != ROLE_PSICOLOGO:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: se requiere rol de Administrador o Psicólogo."
+        )
+
+    caller_tenant_id = req.auth.token.get("tenantId") if req.auth else None
+    if caller_role == ROLE_PSICOLOGO and not caller_tenant_id:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: cuenta de psicólogo sin inquilino asociado."
+        )
 
     try:
         users = []
@@ -797,9 +813,16 @@ def list_dashboard_users(req: https_fn.CallableRequest) -> dict:
                 role = claims.get('role', 'COACH')
                 team = claims.get('team', '')
                 blocked = claims.get('blocked', False)
+                tenant_id = claims.get('tenantId', '')
+
                 # Identificar si es la cuenta DEMO
                 if user.email == 'demo@imedpredictor.com':
                     role = 'DEMO'
+
+                # Filtrar por tenantId si el llamador no es SUPER_ADMIN
+                if caller_role != ROLE_SUPER_ADMIN:
+                    if tenant_id != caller_tenant_id:
+                        continue  # Omitir usuarios de otros tenants
 
                 users.append({
                     "uid":          user.uid,
@@ -807,6 +830,7 @@ def list_dashboard_users(req: https_fn.CallableRequest) -> dict:
                     "role":         role,
                     "team":         team,
                     "blocked":      blocked,
+                    "tenantId":     tenant_id,
                     "creationTime": user.user_metadata.creation_timestamp
                 })
             page = page.get_next_page()
@@ -821,10 +845,22 @@ def list_dashboard_users(req: https_fn.CallableRequest) -> dict:
 
 @https_fn.on_call()
 def create_dashboard_user(req: https_fn.CallableRequest) -> dict:
-    """Crea un usuario en Firebase Auth y le asigna un rol. Requiere SUPER_ADMIN."""
+    """Crea un usuario en Firebase Auth y le asigna un rol y tenantId."""
     from firebase_admin import auth
 
-    _require_role(req, ROLES_ADMIN_ONLY)
+    caller_role = _get_caller_role(req)
+    if caller_role != ROLE_SUPER_ADMIN and caller_role != ROLE_PSICOLOGO:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: se requiere rol de Administrador o Psicólogo."
+        )
+
+    caller_tenant_id = req.auth.token.get("tenantId") if req.auth else None
+    if caller_role == ROLE_PSICOLOGO and not caller_tenant_id:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: cuenta de psicólogo sin inquilino asociado."
+        )
 
     email    = req.data.get("email", "").strip()
     password = req.data.get("password", "")
@@ -832,9 +868,9 @@ def create_dashboard_user(req: https_fn.CallableRequest) -> dict:
     team     = req.data.get("team", "")
 
     # Validar que el rol solicitado sea uno de los roles válidos del sistema
-    valid_roles = {ROLE_DEPORTISTA, ROLE_COACH, ROLE_PSICOLOGO, ROLE_SUPER_ADMIN}
+    valid_roles = {ROLE_DEPORTISTA, ROLE_COACH, ROLE_PSICOLOGO}
     if role not in valid_roles:
-        return {"status": "error", "message": f"Rol inválido: '{role}'. Roles válidos: {valid_roles}"}
+        return {"status": "error", "message": f"Rol inválido: '{role}'."}
 
     if not email or not password:
         return {"status": "error", "message": "Email y contraseña requeridos."}
@@ -845,13 +881,21 @@ def create_dashboard_user(req: https_fn.CallableRequest) -> dict:
         if team:
             claims["team"] = team
 
+        # Asignar tenantId
+        if caller_role == ROLE_SUPER_ADMIN:
+            requested_tenant = req.data.get("tenantId", "").strip()
+            if requested_tenant:
+                claims["tenantId"] = requested_tenant
+        else:
+            claims["tenantId"] = caller_tenant_id
+
         auth.set_custom_user_claims(user.uid, claims)
 
         _log_audit(
             action="CREATE_USER",
             actor_uid=req.auth.uid,
             target=email,
-            details={"role": role, "team": team, "new_uid": user.uid}
+            details={"role": role, "team": team, "new_uid": user.uid, "tenantId": claims.get("tenantId")}
         )
         return {"status": "success", "message": f"Usuario {email} creado con rol {role}."}
     except https_fn.HttpsError:
@@ -862,18 +906,39 @@ def create_dashboard_user(req: https_fn.CallableRequest) -> dict:
 
 @https_fn.on_call()
 def delete_dashboard_user(req: https_fn.CallableRequest) -> dict:
-    """Elimina un usuario de Firebase Auth. Requiere SUPER_ADMIN."""
+    """Elimina un usuario de Firebase Auth. Requiere SUPER_ADMIN o Psicólogo dueño del tenant."""
     from firebase_admin import auth
 
-    _require_role(req, ROLES_ADMIN_ONLY)
+    caller_role = _get_caller_role(req)
+    if caller_role != ROLE_SUPER_ADMIN and caller_role != ROLE_PSICOLOGO:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: se requiere rol de Administrador o Psicólogo."
+        )
+
+    caller_tenant_id = req.auth.token.get("tenantId") if req.auth else None
+    if caller_role == ROLE_PSICOLOGO and not caller_tenant_id:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: cuenta de psicólogo sin inquilino asociado."
+        )
 
     uid = req.data.get("uid", "").strip()
     if not uid:
         return {"status": "error", "message": "UID requerido."}
 
     try:
-        # Prevenir borrar la cuenta demo
         user = auth.get_user(uid)
+
+        # Si el llamador es Psicólogo, validar que el usuario pertenece a su tenant
+        if caller_role == ROLE_PSICOLOGO:
+            user_claims = user.custom_claims or {}
+            if user_claims.get("tenantId") != caller_tenant_id:
+                raise https_fn.HttpsError(
+                    https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+                    "Acceso denegado: el usuario no pertenece a tu organización."
+                )
+
         if user.email == 'demo@imedpredictor.com':
             return {"status": "error", "message": "No se puede eliminar la cuenta DEMO oficial."}
 
@@ -894,10 +959,22 @@ def delete_dashboard_user(req: https_fn.CallableRequest) -> dict:
 
 @https_fn.on_call()
 def update_dashboard_user_team(req: https_fn.CallableRequest) -> dict:
-    """Actualiza la plantilla (team) asignada a un usuario. Requiere SUPER_ADMIN."""
+    """Actualiza la plantilla (team) asignada a un usuario. Requiere SUPER_ADMIN o Psicólogo dueño del tenant."""
     from firebase_admin import auth
 
-    _require_role(req, ROLES_ADMIN_ONLY)
+    caller_role = _get_caller_role(req)
+    if caller_role != ROLE_SUPER_ADMIN and caller_role != ROLE_PSICOLOGO:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: se requiere rol de Administrador o Psicólogo."
+        )
+
+    caller_tenant_id = req.auth.token.get("tenantId") if req.auth else None
+    if caller_role == ROLE_PSICOLOGO and not caller_tenant_id:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: cuenta de psicólogo sin inquilino asociado."
+        )
 
     uid  = req.data.get("uid", "").strip()
     team = req.data.get("team", "")
@@ -908,6 +985,14 @@ def update_dashboard_user_team(req: https_fn.CallableRequest) -> dict:
     try:
         user   = auth.get_user(uid)
         claims = user.custom_claims or {}
+
+        # Si el llamador es Psicólogo, validar que el usuario pertenece a su tenant
+        if caller_role == ROLE_PSICOLOGO:
+            if claims.get("tenantId") != caller_tenant_id:
+                raise https_fn.HttpsError(
+                    https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+                    "Acceso denegado: el usuario no pertenece a tu organización."
+                )
 
         if team:
             claims['team'] = team
@@ -1128,5 +1213,70 @@ def update_subscription_status(req: https_fn.CallableRequest) -> dict:
         return {"status": "success", "message": f"Cuenta {user.email} {estado} exitosamente."}
     except https_fn.HttpsError:
         raise
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@https_fn.on_call()
+def register_new_tenant(req: https_fn.CallableRequest) -> dict:
+    """Registra un nuevo inquilino (tenant) y crea su cuenta de acceso. Acceso público."""
+    from firebase_admin import auth as fb_auth
+    import random
+    import string
+
+    db = firestore.client()
+
+    tenant_id = req.data.get("tenantId", "").strip().lower()
+    # Limpiar ID
+    tenant_id = "".join(c for c in tenant_id if c.isalnum())
+    name = req.data.get("name", "").strip()
+    email = req.data.get("email", "").strip()
+    password = req.data.get("password", "")
+    plan = req.data.get("plan", "BASIC")
+
+    if not tenant_id or not name or not email or not password:
+        return {"status": "error", "message": "Todos los campos son requeridos."}
+
+    # 1. Validar unicidad del Tenant
+    tenant_ref = db.collection("tenants").document(tenant_id)
+    if tenant_ref.get().exists:
+        return {"status": "error", "message": f"El identificador '{tenant_id}' ya está registrado."}
+
+    try:
+        # 2. Crear usuario en Firebase Auth
+        user = fb_auth.create_user(email=email, password=password)
+
+        # 3. Asignar Custom Claims
+        claims = {"role": "PSICOLOGO", "tenantId": tenant_id}
+        fb_auth.set_custom_user_claims(user.uid, claims)
+
+        # 4. Generar código de asociación de 6 caracteres alfanuméricos
+        chars = string.ascii_uppercase + string.digits
+        association_code = "".join(random.choice(chars) for _ in range(6))
+
+        # Calcular fecha de expiración
+        today = datetime.datetime.now()
+        expiration = ""
+        if plan == "TRIAL":
+            expiration = (today + datetime.timedelta(days=14)).strftime("%Y-%m-%d")
+        elif plan in ["BASIC", "PRO"]:
+            expiration = (today + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+
+        # 5. Crear el documento del inquilino en Firestore
+        tenant_ref.set({
+            "id": tenant_id,
+            "name": name,
+            "plan": plan,
+            "expiration": expiration,
+            "status": "ACTIVE",
+            "admin_email": email,
+            "associationCode": association_code,
+            "created_at": datetime.datetime.now()
+        })
+
+        return {
+            "status": "success", 
+            "message": f"Registro exitoso. Tu código de asociación es {association_code}."
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}

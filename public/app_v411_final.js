@@ -46,7 +46,6 @@ try {
     db   = firebase.firestore();
     auth = firebase.auth();
 
-    // ─── Esperar autenticación antes de cargar datos de Firestore ───
     auth.onAuthStateChanged(async function(user) {
         if (user && !window._imedAppInitialized) {
             // Leer claims del token para obtener el rol
@@ -54,13 +53,30 @@ try {
                 const idTokenResult = await user.getIdTokenResult();
                 window.currentUserRole = idTokenResult.claims.role || 'COACH';
                 window.currentUserTeam = idTokenResult.claims.team || null;
-                // La cuenta demo oficial siempre es DEMO
+                
+                // Forzar roles oficiales por correo
                 if (user.email === 'demo@imedpredictor.com') window.currentUserRole = 'DEMO';
+                if (user.email === 'ps.patriciorubilar@gmail.com') window.currentUserRole = 'SUPER_ADMIN';
+                
+                // Resolver el tenantId del usuario
+                let tenantId = idTokenResult.claims.tenantId || null;
+                if (!tenantId) {
+                    if (window.currentUserRole === 'DEMO') {
+                        tenantId = 'demo_tenant';
+                    } else if (window.currentUserRole !== 'SUPER_ADMIN') {
+                        const tenantSnap = await db.collection('tenants').where('admin_email', '==', user.email).get();
+                        if (!tenantSnap.empty) {
+                            tenantId = tenantSnap.docs[0].id;
+                        }
+                    }
+                }
+                window.currentUserTenantId = tenantId;
                 
                 applyRolePermissions();
             } catch (err) {
                 console.error("Error reading role:", err);
                 window.currentUserRole = 'COACH';
+                window.currentUserTenantId = null;
             }
             
             window._imedAppInitialized = true;
@@ -68,21 +84,64 @@ try {
         }
     });
 } catch (e) { console.error("Firebase Init Error:", e); }
-
+ 
 function applyRolePermissions() {
     const role = window.currentUserRole;
     console.log("IMED: User Role detected ->", role);
     
-    // Si NO es ADMIN, ocultar pestaña Usuarios
-    if (role !== 'ADMIN') {
-        const navUsers = document.getElementById('nav-users');
+    const navUsers = document.getElementById('nav-users');
+    const navSaas = document.getElementById('nav-saas');
+    const navBilling = document.getElementById('nav-billing');
+    const navSettings = document.getElementById('nav-settings');
+
+    if (role === 'DEMO') {
+        // La cuenta demo tiene límites estrictos para capital semilla
         if (navUsers) navUsers.style.display = 'none';
+        if (navSaas) navSaas.style.display = 'none';
+        if (navBilling) navBilling.style.display = 'none';
+        if (navSettings) navSettings.style.display = 'none';
+    } else if (role === 'SUPER_ADMIN') {
+        // El Super Admin tiene acceso completo a todos los privilegios
+        if (navUsers) navUsers.style.display = '';
+        if (navSaas) navSaas.style.display = '';
+        if (navBilling) navBilling.style.display = '';
+        if (navSettings) navSettings.style.display = '';
+    } else if (role === 'PSICOLOGO' || role === 'COACH') {
+        // El cliente de suscripción ve su panel, deportistas, ajustes y pagos, pero no administración SaaS
+        if (navUsers) navUsers.style.display = 'none';
+        if (navSaas) navSaas.style.display = 'none';
+        if (navBilling) navBilling.style.display = '';
+        if (navSettings) navSettings.style.display = '';
+    } else {
+        // Desloguear cualquier otra cuenta no autorizada
+        auth.signOut();
+        alert("Acceso no autorizado.");
+    }
+}
+
+async function loadAssociationCode() {
+    const user = firebase.auth().currentUser;
+    if (!user) return;
+    
+    const codeEl = document.getElementById('settings-association-code');
+    if (!codeEl) return;
+    
+    if (window.currentUserRole === 'SUPER_ADMIN') {
+        codeEl.textContent = 'IMED-SUPER-ADMIN-GLOBAL';
+        return;
     }
     
-    // Si es DEMO, ocultar Ajustes y hacer que no pueda borrar
-    if (role === 'DEMO') {
-        const navSettings = document.getElementById('nav-settings');
-        if (navSettings) navSettings.style.display = 'none';
+    try {
+        const snap = await db.collection('tenants').where('admin_email', '==', user.email).get();
+        if (!snap.empty) {
+            const tenantData = snap.docs[0].data();
+            codeEl.textContent = tenantData.associationCode || 'IMED-MOCKCODE';
+        } else {
+            codeEl.textContent = 'IMED-DEMO-2026';
+        }
+    } catch (e) {
+        console.error("Error loading association code:", e);
+        codeEl.textContent = 'IMED-DEMO-2026';
     }
 }
 
@@ -103,12 +162,15 @@ async function init() {
     startRealtimeListener();
     startAthletesOnboarding();
     initGpsBrandSelector();
+    loadAssociationCode();
 }
 
 // ─── Onboarding & Real-time ───
 function startAthletesOnboarding() {
     let query = db.collection('athletes');
-    if (window.currentUserTeam && window.currentUserRole !== 'ADMIN') {
+    if (window.currentUserRole !== 'SUPER_ADMIN' && window.currentUserTenantId) {
+        query = query.where('tenantId', '==', window.currentUserTenantId);
+    } else if (window.currentUserTeam && window.currentUserRole !== 'ADMIN') {
         query = query.where('team', '==', window.currentUserTeam);
     }
     query.onSnapshot(snap => {
@@ -138,7 +200,11 @@ function startAthletesOnboarding() {
 function startRealtimeListener() {
     if (unsubscribe) unsubscribe();
     const rtDot = document.getElementById('rt-dot');
-    unsubscribe = db.collection('Daily_Performance')
+    let query = db.collection('Daily_Performance');
+    if (window.currentUserRole !== 'SUPER_ADMIN' && window.currentUserTenantId) {
+        query = query.where('tenantId', '==', window.currentUserTenantId);
+    }
+    unsubscribe = query
         .orderBy('timestamp', 'desc')
         .limit(500)  // Aumentado: soporta equipos grandes con historial extendido
         .onSnapshot(snap => {
@@ -191,12 +257,15 @@ function showView(viewId) {
         'reports': 'Análisis de Tendencias', 
         'upload': 'Carga de Datos GPS',
         'settings': 'Configuración del Sistema',
-        'users': 'Gestión de Accesos y Roles'
+        'users': 'Gestión de Accesos y Roles',
+        'saas': 'SaaS Control de Inquilinos',
+        'billing': 'Planes de Suscripción y Facturación'
     };
     const titleEl = document.getElementById('page-title');
     if (titleEl) titleEl.textContent = titleMap[viewId] || 'IMED Predictor';
     if (viewId === 'reports') loadAthleteReport(document.getElementById('report-athlete-select')?.value);
     if (viewId === 'users') loadDashboardUsers();
+    if (viewId === 'saas') loadSaasTenants();
     if (viewId === 'settings') {
         document.getElementById('threshold-iri').value = THRESH.iriCritical;
         document.getElementById('threshold-lapses').value = THRESH.lapses;
@@ -243,9 +312,9 @@ function getUnifiedStatus(p) {
     }
 
     // Algoritmo Fiel: Wellness + PVT = IRI (Promedio de disponibilidad)
-    // Si no hay wellness, se usa el PVT como base única.
+    // Si no hay wellness, se usa el PVT como base única. Si ya está calculado en p.iri, se respeta ese valor.
     const wellness = wellnessRaw !== null ? wellnessRaw : pvtRaw;
-    const iriFinal = Math.round((pvtRaw + wellness) / 2);
+    const iriFinal = p.iri != null ? Number(p.iri) : Math.round((pvtRaw + wellness) / 2);
     
     // El NA (Neural Availability) se ve afectado por los lapsos (penalización técnica)
     const na = Math.max(0, iriFinal * (1 - (lapses * 0.1)));
@@ -2019,6 +2088,8 @@ window.addEventListener('click', (e) => {
     const sncModal = document.getElementById('snc-modal');
     const newUserModal = document.getElementById('new-user-modal');
     const usersPanelModal = document.getElementById('users-panel-modal');
+    const saasTenantModal = document.getElementById('saas-tenant-modal');
+    const registrationModal = document.getElementById('registration-modal');
     
     if (e.target === athleteModal) {
         athleteModal.classList.add('hidden');
@@ -2034,6 +2105,12 @@ window.addEventListener('click', (e) => {
     }
     if (e.target === usersPanelModal) {
         usersPanelModal.classList.add('hidden');
+    }
+    if (e.target === saasTenantModal) {
+        saasTenantModal.classList.add('hidden');
+    }
+    if (e.target === registrationModal) {
+        registrationModal.classList.add('hidden');
     }
 });
 
@@ -2251,3 +2328,237 @@ async function submitAssignTeam() {
         btn.textContent = 'Guardar Cambios';
     }
 }
+
+// ─── SaaS Multi-Tenant & Subscription Control [NUEVO] ───
+let gSaasTenantsCache = [];
+
+window.loadSaasTenants = async function() {
+    const tbody = document.getElementById('saas-tenants-body');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px"><span class="login-btn-spinner"></span> Cargando base de datos de inquilinos...</td></tr>`;
+
+    try {
+        const snap = await db.collection('tenants').orderBy('created_at', 'desc').get();
+        gSaasTenantsCache = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Si la coleccion está vacia, inyectar inquilinos de prueba (Seed Data) para la postulación
+        if (gSaasTenantsCache.length === 0) {
+            await seedMockTenants();
+            return;
+        }
+
+        renderTenantsTable();
+    } catch (e) {
+        console.error("Error al cargar tenants:", e);
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--red); padding:20px">Error de permisos o conexión al cargar base SaaS. Asegúrate de ser SUPER_ADMIN.</td></tr>`;
+    }
+};
+
+async function seedMockTenants() {
+    const mockData = [
+        {
+            id: 'colocolo',
+            name: 'Club de Deportes Colo-Colo',
+            plan: 'PRO',
+            expiration: '2026-12-31',
+            status: 'ACTIVE',
+            admin_email: 'preparador.fisico@colocolo.cl',
+            associationCode: 'COLO26',
+            created_at: new Date()
+        },
+        {
+            id: 'uchile',
+            name: 'Club Universidad de Chile',
+            plan: 'BASIC',
+            expiration: '2026-08-15',
+            status: 'ACTIVE',
+            admin_email: 'kinesiologia@udechile.cl',
+            associationCode: 'UCHI26',
+            created_at: new Date(Date.now() - 86400000)
+        },
+        {
+            id: 'clinicamedica',
+            name: 'Centro de Medicina Deportiva Meds',
+            plan: 'ENTERPRISE',
+            expiration: '2027-06-30',
+            status: 'ACTIVE',
+            admin_email: 'contacto@meds.cl',
+            associationCode: 'MEDS26',
+            created_at: new Date(Date.now() - 86400000 * 2)
+        },
+        {
+            id: 'valencia_fc',
+            name: 'Valencia Football Club Academias',
+            plan: 'TRIAL',
+            expiration: '2026-07-10',
+            status: 'EXPIRED',
+            admin_email: 'academias@valencia.es',
+            associationCode: 'VALE26',
+            created_at: new Date(Date.now() - 86400000 * 20)
+        }
+    ];
+
+    for (const tenant of mockData) {
+        await db.collection('tenants').doc(tenant.id).set(tenant);
+    }
+    await loadSaasTenants();
+}
+
+function renderTenantsTable() {
+    const tbody = document.getElementById('saas-tenants-body');
+    if (!tbody) return;
+
+    if (gSaasTenantsCache.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px">No hay inquilinos registrados.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = gSaasTenantsCache.map(t => {
+        const badgeColor = t.status === 'ACTIVE' ? 'badge-green' : t.status === 'EXPIRED' ? 'badge-yellow' : 'badge-red';
+        const actionBtn = t.status === 'ACTIVE' 
+            ? `<button class="btn-mini" style="background:rgba(255,77,77,0.1); border:1px solid rgba(255,77,77,0.2); color:var(--red)" onclick="switchTenantStatus('${t.id}', 'SUSPENDED')">Suspender</button>`
+            : `<button class="btn-mini" style="background:rgba(50,215,75,0.1); border:1px solid rgba(50,215,75,0.2); color:var(--green)" onclick="switchTenantStatus('${t.id}', 'ACTIVE')">Reactivar</button>`;
+
+        return `
+            <tr>
+                <td style="font-weight:700" class="mono-cell">${t.id}</td>
+                <td>
+                    <div style="font-weight:600; color:#fff">${t.name}</div>
+                    <div style="font-size:11px; color:#636375">${t.admin_email}</div>
+                    <div style="font-size:11px; color:#00E5FF; font-weight:700; margin-top:2px">Código: <span class="mono-cell" style="background:rgba(0,229,255,0.1); padding:2px 6px; border-radius:4px">${t.associationCode || 'IMED-MOCKCODE'}</span></div>
+                </td>
+                <td><span class="badge blue-badge">${t.plan}</span></td>
+                <td>${t.expiration || 'Sin límite (Enterprise)'}</td>
+                <td><span class="badge ${badgeColor}">${t.status}</span></td>
+                <td style="display:flex; gap:6px">${actionBtn}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+window.switchTenantStatus = async function(tenantId, newStatus) {
+    try {
+        await db.collection('tenants').doc(tenantId).update({ status: newStatus });
+        showToast('success', 'Inquilino Actualizado', `El estado del tenant ${tenantId} ha cambiado a ${newStatus}.`);
+        await loadSaasTenants();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Error SaaS', 'No tienes permisos de SuperAdmin para modificar inquilinos.');
+    }
+};
+
+window.openNewTenantModal = function() {
+    document.getElementById('saas-tenant-modal').classList.remove('hidden');
+};
+
+window.closeTenantModal = function() {
+    document.getElementById('saas-tenant-modal').classList.add('hidden');
+};
+
+window.saveNewTenant = async function(event) {
+    event.preventDefault();
+    const btn = event.submitter || event.target.querySelector('button[type="submit"]');
+    const origText = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.textContent = 'Aprovisionando base de datos...';
+
+    const id = document.getElementById('tenant-id-input').value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const name = document.getElementById('tenant-name-input').value.trim();
+    const plan = document.getElementById('tenant-plan-input').value;
+    const email = document.getElementById('tenant-email-input').value.trim();
+
+    const today = new Date();
+    let expiration = "";
+    if (plan === 'TRIAL') {
+        today.setDate(today.getDate() + 14);
+        expiration = today.toISOString().split('T')[0];
+    } else if (plan === 'BASIC' || plan === 'PRO') {
+        today.setDate(today.getDate() + 30);
+        expiration = today.toISOString().split('T')[0];
+    }
+
+    // Generar un código único legible de 6 caracteres alfanuméricos
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let codeStr = '';
+    for (let i = 0; i < 6; i++) {
+        codeStr += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const associationCode = codeStr;
+
+    const newTenant = {
+        id,
+        name,
+        plan,
+        expiration,
+        status: 'ACTIVE',
+        admin_email: email,
+        associationCode,
+        created_at: new Date()
+    };
+
+    try {
+        await db.collection('tenants').doc(id).set(newTenant);
+        showToast('success', 'Tenant Aprovisionado', `Base de datos aislada para ${name} lista.`);
+        closeTenantModal();
+        await loadSaasTenants();
+    } catch (e) {
+        console.error(e);
+        showToast('error', 'Fallo Aprovisionamiento', 'Error de permisos al dar de alta el inquilino.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origText;
+    }
+};
+
+// ─── Simulación Pasarela Stripe & Cobros ───
+window.simulateCheckout = function(planName) {
+    showToast('info', 'Redirección Pasarela', `Conectando con Stripe Checkout para plan ${planName}...`);
+    setTimeout(async () => {
+        const confirmar = confirm(`[SIMULADOR STRIPE] ¿Deseas autorizar la suscripción de pago mensual para el plan ${planName}?`);
+        if (confirmar) {
+            try {
+                // Actualizar plan en base de datos si tiene tenant
+                if (window.currentUserTenantId) {
+                    await db.collection('tenants').doc(window.currentUserTenantId).update({ plan: planName.toUpperCase() });
+                    showToast('success', 'Plan Actualizado', `¡Gracias por tu compra! Tu plan ha sido actualizado a ${planName}.`);
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showToast('success', 'Suscripción Procesada', `¡Gracias por tu compra! Tu licencia ${planName} se encuentra activa.`);
+                }
+            } catch (e) {
+                console.error(e);
+                showToast('error', 'Error de Compra', 'No se pudo actualizar el plan.');
+            }
+        }
+    }, 1000);
+};
+
+window.simulateBillingPortal = function() {
+    showToast('info', 'Stripe Billing Portal', 'Conectando con el Portal de Facturación de Stripe...');
+    setTimeout(() => {
+        alert('[PORTAL DE FACTURACIÓN MOCK] Aquí el cliente puede actualizar su tarjeta, ver facturas previas y descargar comprobantes de pago.');
+    }, 800);
+};
+
+window.cancelSubscription = function() {
+    const confirmar = confirm("¿Estás seguro de que deseas eliminar tu plan actual y cancelar tu suscripción? Perderás acceso a los reportes avanzados.");
+    if (confirmar) {
+        setTimeout(async () => {
+            try {
+                if (window.currentUserTenantId) {
+                    await db.collection('tenants').doc(window.currentUserTenantId).update({ status: 'SUSPENDED', plan: 'NINGUNO' });
+                    showToast('success', 'Suscripción Eliminada', 'Tu plan ha sido cancelado con éxito.');
+                    setTimeout(() => auth.signOut(), 2000);
+                } else {
+                    showToast('success', 'Plan Cancelado', 'Tu suscripción ha sido eliminada con éxito.');
+                }
+            } catch (e) {
+                console.error(e);
+                showToast('error', 'Error al Cancelar', 'No se pudo cancelar el plan.');
+            }
+        }, 500);
+    }
+};
+

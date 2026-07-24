@@ -3,12 +3,9 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ══════════════════════════════════════════════════════════════════════════
-    // IMED PREDICTOR — Firestore Security Rules v2.0
-    // Sprint 1: RBAC + Multi-tenant isolation + Audit protection
-    // Fecha: 2026-07-21
+    // IMED PREDICTOR — Firestore Security Rules v4.0
+    // Producción + App Móvil Telemetría + Dashboard Realtime + Multi-Tenant
     // ══════════════════════════════════════════════════════════════════════════
-
-    // ─── HELPERS DE ROL (leen Custom Claims del token JWT de forma segura) ───
 
     function isAuthenticated() {
       return request.auth != null;
@@ -16,6 +13,10 @@ service cloud.firestore {
 
     function getRole() {
       return isAuthenticated() && ('role' in request.auth.token) ? request.auth.token.role : '';
+    }
+
+    function getTenantId() {
+      return isAuthenticated() && ('tenantId' in request.auth.token) ? request.auth.token.tenantId : 'default';
     }
 
     function isSuperAdmin() {
@@ -26,12 +27,7 @@ service cloud.firestore {
       return isSuperAdmin() || getRole() == 'PSICOLOGO' || getRole() == 'COACH' || getRole() == 'DEMO';
     }
 
-    function isCoach() {
-      return isPsicologo();
-    }
-
     function isNotBlocked() {
-      // Si el campo 'blocked' no existe en el token, se asume no bloqueado (false)
       return isAuthenticated() && (!('blocked' in request.auth.token) || request.auth.token.blocked != true);
     }
 
@@ -39,74 +35,78 @@ service cloud.firestore {
       return isAuthenticated() && isNotBlocked();
     }
 
-    // ─── 1. ATLETAS ──────────────────────────────────────────────────────────
-    // La app móvil Flutter escribe directamente a Firestore sin Firebase Auth.
-    // Por diseño, se mantiene write=true en /measurements (telemetría del deportista).
-    // El perfil del atleta (documento raíz) solo puede modificarlo el dashboard autenticado.
-    // NOTA: Migración futura → Anonymous Auth en la app permitirá restricción completa.
-    match /athletes/{athleteId} {
-      // Dashboard autenticado y no bloqueado puede leer cualquier atleta de su equipo
-      allow read: if isValidDashboardUser();
-      // Solo psicólogo/admin puede crear o actualizar el perfil del atleta
-      allow write: if isPsicologo();
+    function belongsToTenant(tenantId) {
+      return getTenantId() == tenantId;
+    }
 
-      // Sub-colección de mediciones (telemetría cruda)
-      // La app móvil escribe aquí directamente — write=true se mantiene por diseño
-      // hasta implementar Anonymous Auth en el cliente Flutter.
+    // Helper para leer otro documento y verificar su tenant
+    function getCol(col, id) {
+      return get(/databases/$(database)/documents/$(col)/$(id)).data;
+    }
+
+    // ─── 1. ATLETAS Y TELEMETRÍA (App Móvil + Dashboard) ────────────────────
+    match /athletes/{athleteId} {
+      // El dashboard solo puede leer atletas de su propio tenant (a menos que sea SuperAdmin)
+      allow read: if isValidDashboardUser() && (isSuperAdmin() || belongsToTenant(resource.data.tenantId));
+      
+      // La app móvil escribe sin auth, y el dashboard escribe con auth de su propio tenant
+      allow write: if !isAuthenticated() || isSuperAdmin() || belongsToTenant(request.resource.data.tenantId);
+
       match /measurements/{measurementId} {
-        allow read:  if isValidDashboardUser();
-        allow write: if true;  // TODO: restringir tras implementar Anonymous Auth en Flutter
+        // Lectura de mediciones aislada por tenant del atleta padre
+        allow read: if isValidDashboardUser() && (isSuperAdmin() || belongsToTenant(getCol('athletes', athleteId).tenantId));
+        // La app móvil escribe sin auth
+        allow write: if true;
       }
     }
 
     // ─── 2. RENDIMIENTO DIARIO (Daily_Performance) ───────────────────────────
-    // Escrita exclusivamente por Cloud Functions via Admin SDK (bypasea estas reglas).
-    // El Dashboard SaaS la lee para visualizar métricas.
     match /Daily_Performance/{docId} {
-      allow read:  if isValidDashboardUser();
-      allow write: if false;  // Solo Admin SDK (Cloud Functions). El cliente nunca escribe aquí.
+      // El dashboard solo puede leer rendimiento de su propio tenant
+      allow read: if isValidDashboardUser() && (isSuperAdmin() || belongsToTenant(resource.data.tenantId));
+      // Escrito por Cloud Functions (Admin SDK bypasea esto) y por la app móvil
+      allow write: if !isAuthenticated() || isSuperAdmin() || belongsToTenant(request.resource.data.tenantId);
     }
 
-    // ─── 3. SUSCRIPCIONES ────────────────────────────────────────────────────
-    // Solo SuperAdmin puede gestionar suscripciones.
-    // Un usuario autenticado puede leer su propia suscripción.
+    // ─── 3. SUSCRIPCIONES Y TENANTS ──────────────────────────────────────────
     match /subscriptions/{uid} {
-      allow read:  if isAuthenticated() && (request.auth.uid == uid || isSuperAdmin());
-      allow write: if false;  // Solo Admin SDK (Cloud Functions check_expired_subscriptions)
-    }
-
-    // ─── 4. AUDIT LOG ────────────────────────────────────────────────────────
-    // Inmutable desde el cliente. Solo Cloud Functions (Admin SDK) pueden escribir.
-    // SuperAdmin puede leer para auditoría cuantitativa.
-    match /audit_log/{logId} {
-      allow read:  if isSuperAdmin();
-      allow write: if false;  // Inmutable — solo Admin SDK
-    }
-
-    // ─── 5. NOTAS CLÍNICAS (Ficha Digital) ───────────────────────────────────
-    // El psicólogo solo puede leer/escribir SUS PROPIAS notas.
-    // SuperAdmin NO tiene permisos de lectura (privacidad absoluta).
-    // El contenido llega encriptado AES-256 desde el cliente Flutter.
-    match /clinical_notes/{noteId} {
-      // Leer y modificar/eliminar: solo el psicólogo propietario de la nota
-      allow read, update, delete: if isPsicologo()
-                                  && isNotBlocked()
-                                  && request.auth.uid == resource.data.psychologist_uid;
-      // Crear: verifica que el uid del creador coincide con el campo en el documento nuevo
-      allow create: if isPsicologo()
-                    && isNotBlocked()
-                    && request.auth.uid == request.resource.data.psychologist_uid;
-    }
-
-    // ─── 6. CONFIGURACIÓN DEL SISTEMA ────────────────────────────────────────
-    match /system_config/{docId} {
-      allow read:  if isValidDashboardUser();
+      allow read: if isAuthenticated() && (request.auth.uid == uid || isSuperAdmin());
       allow write: if isSuperAdmin();
     }
 
-    // ─── 7. REGLA POR DEFECTO (deniega todo lo no explicitado) ───────────────
+    match /tenants/{tenantId} {
+      // Cualquiera puede leer la info básica de un tenant (para validar códigos maestros en la app)
+      allow read: if true;
+      // Solo SuperAdmin o registro público de nuevo tenant (write por register_new_tenant corre en Cloud Functions con Admin SDK)
+      allow write: if isSuperAdmin();
+    }
+
+    // ─── 4. AUDIT LOG & CLINICAL NOTES ───────────────────────────────────────
+    match /audit_log/{logId} {
+      allow read: if isSuperAdmin();
+      allow write: if false; // Solo Admin SDK (Cloud Functions)
+    }
+
+    match /clinical_notes/{noteId} {
+      // Aislamiento estricto por psicólogo creador y tenant
+      allow read, update, delete: if isPsicologo()
+                                  && isNotBlocked()
+                                  && request.auth.uid == resource.data.psychologist_uid
+                                  && belongsToTenant(resource.data.tenantId);
+      allow create: if isPsicologo()
+                    && isNotBlocked()
+                    && request.auth.uid == request.resource.data.psychologist_uid
+                    && belongsToTenant(request.resource.data.tenantId);
+    }
+
+    match /system_config/{docId} {
+      allow read: if isValidDashboardUser();
+      allow write: if isSuperAdmin();
+    }
+
+    // ─── 5. REGLA GENERAL POR DEFECTO ────────────────────────────────────────
     match /{document=**} {
-      allow read:  if isAuthenticated() && isNotBlocked();
+      allow read: if isValidDashboardUser() && isSuperAdmin();
       allow write: if false;
     }
   }

@@ -6,6 +6,7 @@ import '../../cognitive_load/presentation/widgets/pvt_test_widget.dart';
 import 'readiness_dashboard_screen.dart';
 import 'package:isar/isar.dart';
 import '../../auth/domain/user_profile.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../domain/biometric_models.dart';
 import '../../../core/network/sync_service.dart';
 import '../../../core/biometrics/snc_engine.dart';
@@ -440,10 +441,29 @@ class _ProcessingScreenState extends State<_ProcessingScreen>
 
     // Recuperar perfil real del deportista
     final userProfile = await widget.isar.collection<UserProfile>().where().findFirst();
+    if (userProfile != null && userProfile.tenantId == null && userProfile.associationCode != null) {
+      try {
+        final querySnap = await FirebaseFirestore.instance
+            .collection('tenants')
+            .where('associationCode', isEqualTo: userProfile.associationCode)
+            .limit(1)
+            .get()
+            .timeout(const Duration(seconds: 4));
+        if (querySnap.docs.isNotEmpty) {
+          userProfile.tenantId = querySnap.docs[0].id;
+          await widget.isar.writeTxn(() => widget.isar.collection<UserProfile>().put(userProfile));
+        }
+      } catch (e) {
+        print("📡 [SYNC] Error al resolver tenantId online: $e");
+      }
+    }
+
     final profileData = userProfile != null ? {
       'firstName': userProfile.firstName,
       'lastName': userProfile.lastName,
       'age': userProfile.age,
+      'tenantId': userProfile.tenantId,
+      'associationCode': userProfile.associationCode,
     } : null;
 
     final syncSuccess = await SyncService.sendBiometrics(payload, token, profileData: profileData);

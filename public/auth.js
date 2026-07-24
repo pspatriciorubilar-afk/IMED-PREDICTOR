@@ -114,17 +114,6 @@
     const loginScreen = document.getElementById('login-screen');
     const appShell    = document.getElementById('app-shell');
 
-    // ─── Estado de autenticación ───
-    auth.onAuthStateChanged(function (user) {
-      if (user) {
-        if (loginScreen) loginScreen.classList.add('hidden');
-        if (appShell)    appShell.style.display = '';
-      } else {
-        if (loginScreen) loginScreen.classList.remove('hidden');
-        if (appShell)    appShell.style.display = 'none';
-      }
-    });
-
     // ─── Autocompletar credenciales demo ───
     window.fillDemoCredentials = function () {
       const emailInput = document.getElementById('login-email');
@@ -185,26 +174,166 @@
       auth.signOut().then(() => { window.location.reload(); });
     };
 
-    // ─── Inyectar botón logout en el topbar ───
-    function injectLogoutButton() {
+    // ─── Inyectar botón logout y detalles del usuario activo ───
+    function injectUserHeaderInfo() {
       const topbarRight = document.querySelector('.topbar-right');
-      if (!topbarRight) { setTimeout(injectLogoutButton, 100); return; }
-      if (document.getElementById('logout-btn')) return;
+      if (!topbarRight) { setTimeout(injectUserHeaderInfo, 100); return; }
+      
+      const user = auth.currentUser;
+      if (!user) return;
 
-      const logoutBtn = document.createElement('button');
-      logoutBtn.id        = 'logout-btn';
-      logoutBtn.className = 'btn-icon';
-      logoutBtn.title     = 'Cerrar sesión';
-      logoutBtn.innerHTML = '⏻';
-      logoutBtn.style.cssText = 'color:#636375; font-size:18px; transition:color 0.2s; cursor:pointer;';
-      logoutBtn.onmouseover = function() { this.style.color = '#FF4D4D'; };
-      logoutBtn.onmouseout  = function() { this.style.color = '#636375'; };
-      logoutBtn.onclick = function () {
-        showLogoutConfirm(function () { window.imedLogout(); });
-      };
-      topbarRight.appendChild(logoutBtn);
+      // 1. Inyectar o actualizar info del usuario (correo y rol) al lado del avatar
+      let infoEl = document.getElementById('user-header-info');
+      if (!infoEl) {
+        infoEl = document.createElement('div');
+        infoEl.id = 'user-header-info';
+        infoEl.style.cssText = 'display:flex; flex-direction:column; text-align:right; margin-right:8px; font-family:var(--font); justify-content:center;';
+        
+        const avatar = topbarRight.querySelector('.avatar');
+        if (avatar) {
+          topbarRight.insertBefore(infoEl, avatar);
+        } else {
+          topbarRight.appendChild(infoEl);
+        }
+      }
+
+      const isSuperAdmin = user.email === 'ps.patriciorubilar@gmail.com';
+      const roleText = isSuperAdmin ? 'Super Admin' : 'Demo CORFO';
+      infoEl.innerHTML = `
+        <span style="font-size:11px; font-weight:800; color:#fff; letter-spacing:0.5px">${roleText}</span>
+        <span style="font-size:9px; color:#636375; font-weight:500">${user.email}</span>
+      `;
+
+      // 2. Personalizar iniciales del avatar
+      const avatarEl = topbarRight.querySelector('.avatar');
+      if (avatarEl) {
+        avatarEl.textContent = isSuperAdmin ? 'PS' : 'DM';
+      }
+
+      // 3. Inyectar botón logout
+      if (!document.getElementById('logout-btn')) {
+        const logoutBtn = document.createElement('button');
+        logoutBtn.id        = 'logout-btn';
+        logoutBtn.className = 'btn-icon';
+        logoutBtn.title     = 'Cerrar sesión';
+        logoutBtn.innerHTML = '⏻';
+        logoutBtn.style.cssText = 'color:#636375; font-size:18px; transition:color 0.2s; cursor:pointer; margin-left:8px;';
+        logoutBtn.onmouseover = function() { this.style.color = '#FF4D4D'; };
+        logoutBtn.onmouseout  = function() { this.style.color = '#636375'; };
+        logoutBtn.onclick = function () {
+          showLogoutConfirm(function () { window.imedLogout(); });
+        };
+        topbarRight.appendChild(logoutBtn);
+      }
     }
-    injectLogoutButton();
+
+    // ─── Controladores del Modal de Registro y Contratación SaaS ───
+    let selectedRegPlan = 'BASIC';
+
+    window.openRegistrationModal = function (e) {
+      if (e) e.preventDefault();
+      document.getElementById('registration-modal').classList.remove('hidden');
+      goToRegistrationStep1();
+    };
+
+    window.closeRegistrationModal = function () {
+      document.getElementById('registration-modal').classList.add('hidden');
+    };
+
+    window.selectRegPlan = function (plan) {
+      selectedRegPlan = plan;
+      // Actualizar selección visual
+      const pBasic = document.getElementById('reg-plan-basic');
+      const pPro = document.getElementById('reg-plan-pro');
+      if (plan === 'BASIC') {
+        if (pBasic) pBasic.checked = true;
+        if (pPro) pPro.checked = false;
+      } else {
+        if (pBasic) pBasic.checked = false;
+        if (pPro) pPro.checked = true;
+      }
+    };
+
+    window.goToRegistrationStep2 = function () {
+      document.getElementById('reg-step-1').classList.add('hidden');
+      document.getElementById('reg-step-2').classList.remove('hidden');
+    };
+
+    window.goToRegistrationStep1 = function () {
+      document.getElementById('reg-step-2').classList.add('hidden');
+      document.getElementById('reg-step-1').classList.remove('hidden');
+      document.getElementById('reg-error').style.display = 'none';
+      document.getElementById('reg-success').style.display = 'none';
+    };
+
+    window.submitRegistration = async function (e) {
+      e.preventDefault();
+      const tenantId = document.getElementById('reg-tenant-id').value.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const name = document.getElementById('reg-tenant-name').value.trim();
+      const email = document.getElementById('reg-email').value.trim();
+      const password = document.getElementById('reg-password').value;
+      
+      const btn = document.getElementById('btn-reg-submit');
+      const errEl = document.getElementById('reg-error');
+      const sucEl = document.getElementById('reg-success');
+
+      errEl.style.display = 'none';
+      sucEl.style.display = 'none';
+      
+      if (password.length < 6) {
+        errEl.textContent = 'La contraseña debe tener al menos 6 caracteres.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="login-btn-spinner"></span> Procesando registro y pago...';
+
+      try {
+        // Conectar con la pasarela Stripe (Simulado con confirmación)
+        const stripeConfirm = confirm(`[STRIPE SECURE] ¿Autorizas la domiciliación de pagos para el plan ${selectedRegPlan}?`);
+        if (!stripeConfirm) {
+          throw new Error('El pago ha sido cancelado por el usuario.');
+        }
+
+        // Llamar a la Cloud Function pública para crear inquilino y cuenta
+        const registerFn = firebase.functions().httpsCallable('register_new_tenant');
+        const res = await registerFn({ tenantId, name, email, password, plan: selectedRegPlan });
+
+        if (res.data.status === 'success') {
+          sucEl.innerHTML = `✅ ${res.data.message}<br><br>Redireccionando al dashboard...`;
+          sucEl.style.display = 'block';
+          
+          // Auto-iniciar sesión
+          await auth.signInWithEmailAndPassword(email, password);
+          setTimeout(() => {
+            closeRegistrationModal();
+            window.location.reload();
+          }, 2000);
+        } else {
+          throw new Error(res.data.message);
+        }
+      } catch (err) {
+        console.error(err);
+        errEl.textContent = `Fallo en el proceso: ${err.message}`;
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '🚀 Autorizar Pago y Crear Cuenta';
+      }
+    };
+
+    // Ejecutar inyección al cambiar estado de sesión
+    auth.onAuthStateChanged(function (user) {
+      if (user) {
+        if (loginScreen) loginScreen.classList.add('hidden');
+        if (appShell)    appShell.style.display = '';
+        setTimeout(injectUserHeaderInfo, 100);
+      } else {
+        if (loginScreen) loginScreen.classList.remove('hidden');
+        if (appShell)    appShell.style.display = 'none';
+      }
+    });
   });
 
 })();

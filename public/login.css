@@ -8,16 +8,15 @@
   position: fixed;
   inset: 0;
   z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #080a0d;
+  display: grid;
+  grid-template-columns: 55% 45%;
+  background: #06080b;
   font-family: 'Inter', sans-serif;
   overflow: hidden;
 }
 
 #login-screen.hidden {
-  display: none;
+  display: none !important;
 }
 
 /* ─── Animated Background Grid ─── */
@@ -435,4 +434,78 @@
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
+}
+
+/* ─── Hero Side & Split Screen Layout ─── */
+.login-hero-side {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  background: radial-gradient(circle at 10% 20%, rgba(13, 17, 23, 0.95) 0%, rgba(6, 8, 11, 0.98) 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.login-form-side {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: #06080b;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 10;
+  max-width: 600px;
+  text-align: left;
+}
+
+.hero-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #00E5FF 0%, #0077ff 100%);
+  color: #000;
+  border: none;
+  padding: 16px 32px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Inter', sans-serif;
+  box-shadow: 0 8px 30px rgba(0, 229, 255, 0.3);
+  letter-spacing: 0.5px;
+}
+
+.hero-cta-btn:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.15);
+  box-shadow: 0 12px 35px rgba(0, 229, 255, 0.45);
+}
+
+@media (max-width: 1024px) {
+  #login-screen {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .login-hero-side {
+    padding: 60px 40px;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .login-form-side {
+    padding: 60px 20px;
+  }
+  .hero-content {
+    max-width: 100%;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
 }
