@@ -9,6 +9,14 @@
       ]
     },
     {
+      "collectionGroup": "Daily_Performance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "measurements",
       "queryScope": "COLLECTION",
       "fields": [

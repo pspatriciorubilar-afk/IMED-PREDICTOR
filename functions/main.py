@@ -369,6 +369,36 @@ def process_gps_csv(req: https_fn.CallableRequest) -> dict:
         raise https_fn.HttpsError(https_fn.FunctionsErrorCode.INTERNAL, str(e))
 
 # ── AUTOMATIZACIÓN DE SINCRONIZACIÓN (De aquí en adelante) ───────────────
+def _execute_exgauss_analysis(db, athlete_id: str, athlete_name: str, date_str: str, m_data: dict) -> None:
+    """
+    Ejecuta el worker Ex-Gaussiano en cualquier proceso de sync o recuperación.
+    Asegura que los cálculos Tau/Z-Score nunca falten al regenerar Daily_Performance.
+    """
+    try:
+        import pvt_exgauss_worker
+        pvt_data = m_data.get("pvt", {})
+        metrics_data = pvt_data.get("metrics", {})
+        trials = (
+            metrics_data.get("trials") or
+            metrics_data.get("rawReactionTimes") or
+            pvt_data.get("trials") or
+            pvt_data.get("logs") or
+            m_data.get("trials") or
+            []
+        )
+        if trials:
+            measurement_payload = {
+                "athlete_id": athlete_id,
+                "athlete_name": athlete_name,
+                "date": date_str,
+                "trials": [float(t) for t in trials if isinstance(t, (int, float))],
+                "wellness": m_data.get("wellness"),
+                "iri": m_data.get("iri")
+            }
+            pvt_exgauss_worker.process_athlete(db, measurement_payload, date_str)
+    except Exception as ex_err:
+        print(f"[ERROR EX-GAUSS] Worker falló en {athlete_name} ({date_str}): {str(ex_err)}")
+
 @firestore_fn.on_document_created(document="athletes/{athlete_id}/measurements/{measurement_id}")
 def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """
@@ -427,40 +457,7 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         print(f"[AUTO-SYNC] ✅ Daily_Performance actualizado para {athlete_name} ({date_str})")
 
         # ── PASO 2: DISPARADOR EX-GAUSSIANO (best-effort, no bloquea el sync) ──
-        # Encapsulado en try/except independiente: si falla, el dato ya está guardado.
-        try:
-            import pvt_exgauss_worker
-            
-            pvt_data = m_data.get("pvt", {})
-            metrics_data = pvt_data.get("metrics", {})
-            # Buscar trials en todos los paths posibles (compatibilidad multi-versión)
-            trials = (
-                metrics_data.get("trials") or
-                metrics_data.get("rawReactionTimes") or
-                pvt_data.get("trials") or
-                pvt_data.get("logs") or
-                m_data.get("trials") or
-                []
-            )
-            
-            if trials:
-                measurement_payload = {
-                    "athlete_id": athlete_id,
-                    "athlete_name": athlete_name,
-                    "date": date_str,
-                    "trials": [float(t) for t in trials if isinstance(t, (int, float))],
-                    "wellness": m_data.get("wellness"),
-                    "iri": m_data.get("iri")
-                }
-                print(f"[AUTO-SYNC] Disparando análisis Ex-Gaussiano para {athlete_name}...")
-                pvt_exgauss_worker.process_athlete(db, measurement_payload, date_str)
-                print(f"[AUTO-SYNC] ✅ Análisis Ex-Gaussiano completado.")
-            else:
-                print(f"[AUTO-SYNC] Sin trials crudos PVT para {athlete_name}. Se omite Ex-Gauss.")
-                
-        except Exception as ex_err:
-            # IMPORTANTE: Este error NO cancela el sync. El dato ya fue guardado arriba.
-            print(f"[ERROR EX-GAUSS RT] ⚠️ Worker falló (dato sincronizado de todas formas): {str(ex_err)}")
+        _execute_exgauss_analysis(db, athlete_id, athlete_name, date_str, m_data)
 
     except Exception as e:
         print(f"[ERROR AUTO-SYNC] {str(e)}")
@@ -503,6 +500,7 @@ def force_sync_athlete(req: https_fn.CallableRequest) -> dict:
     }
     
     db.collection("Daily_Performance").document(f"{athlete_id}_{date_str}").set(payload, merge=True)
+    _execute_exgauss_analysis(db, athlete_id, athlete_name, date_str, m_data)
     return {"status": "success", "message": f"Datos de {athlete_name} sincronizados."}
 
 @https_fn.on_call()
@@ -545,6 +543,7 @@ def sync_athlete_history(req: https_fn.CallableRequest) -> dict:
                 "wellness":    m.get("wellness", {}),
                 "sync_method": "manual_sync_repair_v4"
             }, merge=True)
+            _execute_exgauss_analysis(db, athlete_id, ath_name, date, m)
             synced += 1
             
         return {"success": True, "synced_records": synced}
@@ -674,6 +673,7 @@ def deduplicate_athlete_measurements(req: https_fn.CallableRequest) -> dict:
                     "timestamp":   firestore.SERVER_TIMESTAMP,
                     "sync_method": "dedup_repair_v1",
                 }, merge=True)
+                _execute_exgauss_analysis(db, athlete_id, athlete_name, date_str, data)
 
         print(f"[DEDUP] ✅ {athlete_name}: {deleted_count} duplicados eliminados | fechas afectadas: {len(report)}")
         return {

@@ -93,6 +93,7 @@ function applyRolePermissions() {
     const navSaas = document.getElementById('nav-saas');
     const navBilling = document.getElementById('nav-billing');
     const navSettings = document.getElementById('nav-settings');
+    const navUpload = document.getElementById('nav-upload');
 
     if (role === 'DEMO') {
         // La cuenta demo tiene límites estrictos para capital semilla
@@ -100,12 +101,14 @@ function applyRolePermissions() {
         if (navSaas) navSaas.style.display = 'none';
         if (navBilling) navBilling.style.display = 'none';
         if (navSettings) navSettings.style.display = 'none';
+        if (navUpload) navUpload.style.display = 'none';  // GPS no disponible en demo
     } else if (role === 'SUPER_ADMIN') {
         // El Super Admin tiene acceso completo a todos los privilegios
         if (navUsers) navUsers.style.display = '';
         if (navSaas) navSaas.style.display = '';
         if (navBilling) navBilling.style.display = '';
         if (navSettings) navSettings.style.display = '';
+        if (navUpload) navUpload.style.display = '';
     } else if (role === 'PSICOLOGO' || role === 'COACH') {
         // El cliente de suscripción ve su panel, deportistas, ajustes y pagos, pero no administración SaaS
         if (navUsers) navUsers.style.display = 'none';
@@ -201,11 +204,13 @@ function startRealtimeListener() {
     if (unsubscribe) unsubscribe();
     const rtDot = document.getElementById('rt-dot');
     let query = db.collection('Daily_Performance');
-    if (window.currentUserRole !== 'SUPER_ADMIN' && window.currentUserTenantId) {
+    const isTenantFiltered = (window.currentUserRole !== 'SUPER_ADMIN' && window.currentUserTenantId);
+    if (isTenantFiltered) {
         query = query.where('tenantId', '==', window.currentUserTenantId);
+    } else {
+        query = query.orderBy('timestamp', 'desc');
     }
     unsubscribe = query
-        .orderBy('timestamp', 'desc')
         .limit(500)  // Aumentado: soporta equipos grandes con historial extendido
         .onSnapshot(snap => {
             // Filtrar IDs basura generados por el bug de race condition (athlete_pending_xxx)
@@ -216,6 +221,14 @@ function startRealtimeListener() {
                     const aid = String(p.athleteId || '');
                     return aid.length > 0 && !aid.startsWith('athlete_pending_');
                 });
+            
+            if (isTenantFiltered) {
+                allPerformanceRaw.sort((a, b) => {
+                    const tA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : new Date(a.date || '1970-01-01').getTime());
+                    const tB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : new Date(b.date || '1970-01-01').getTime());
+                    return tB - tA;
+                });
+            }
             
             applyTeamFilterToPerformance();
             
