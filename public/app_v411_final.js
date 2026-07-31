@@ -1429,19 +1429,26 @@ function renderExGaussPanel(p) {
 function closeSncModal() { document.getElementById('snc-modal').classList.add('hidden'); }
 function closeAthleteProfile() { document.getElementById('athlete-profile-modal').classList.add('hidden'); }
 
+// ─── Estado de paginación por atleta ───────────────────────────────────────────
+const _histPage = {};   // { [athleteId]: currentPage (0-indexed) }
+const HIST_PAGE_SIZE = 15;
+
 /**
- * ─── Tabla de Historial Ex-Gaussiano ───────────────────────────────────────────
- * Genera un panel con tabla completa de registros históricos por día:
- * Fecha | IRI | μ | σ | τ | τ Z-Score | Wellness | Wellness Z-Score | Estado
+ * Renderiza solo la página actual del tbody + controles de paginación.
+ * Se llama tanto desde renderHistoricalDataTable como desde los botones.
  */
-function renderHistoricalDataTable(athleteId) {
+function renderHistoricalPage(athleteId) {
     const records = allPerformance
         .filter(p => String(p.athleteId).trim() === String(athleteId).trim())
         .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-    if (!records.length) return '';
+    const totalPages = Math.ceil(records.length / HIST_PAGE_SIZE);
+    const page       = Math.max(0, Math.min(_histPage[athleteId] || 0, totalPages - 1));
+    _histPage[athleteId] = page;
 
-    const rows = records.map(r => {
+    const pageRecords = records.slice(page * HIST_PAGE_SIZE, (page + 1) * HIST_PAGE_SIZE);
+
+    const rows = pageRecords.map(r => {
         const st = getUnifiedStatus(r);
         const aa = r.advanced_analysis || {};
         const mu      = aa.mu_ms    != null ? aa.mu_ms.toFixed(1)    : '—';
@@ -1452,9 +1459,7 @@ function renderHistoricalDataTable(athleteId) {
         const wellness = wVal != null ? wVal : '—';
         const wZ      = aa.wellness_zscore != null ? Number(aa.wellness_zscore).toFixed(2) : '—';
         const lapses  = r.pvt?.metrics?.lapses ?? r.lapses ?? '—';
-        const latency = r.pvt?.metrics?.meanLatency ?? r.avg_reaction ?? '—';
 
-        // Colores semáforo por fila — 4 estados PIFC
         const iriColor = st.level === 'RED'    ? '#FF4D4D'
                        : st.level === 'ORANGE' ? '#FF9500'
                        : st.level === 'YELLOW' ? '#FFD60A'
@@ -1468,8 +1473,6 @@ function renderHistoricalDataTable(athleteId) {
         const wellnessColor = wellness !== '—'
             ? (wellness < 60 ? '#FF4D4D' : wellness < 75 ? '#FFD60A' : '#32D74B')
             : '#636375';
-
-        // Badge de estado compacto — 4 niveles PIFC
         const stateBadgeStyle = st.level === 'RED'
             ? 'background:rgba(255,77,77,0.15);   color:#FF4D4D; border:1px solid rgba(255,77,77,0.3)'
             : st.level === 'ORANGE'
@@ -1513,57 +1516,108 @@ function renderHistoricalDataTable(athleteId) {
             </tr>`;
     }).join('');
 
-    return `
+    // Inyectar filas
+    const tbody = document.getElementById(`hist-tbody-${athleteId}`);
+    if (tbody) tbody.innerHTML = rows;
+
+    // Inyectar controles de paginación
+    const nav = document.getElementById(`hist-nav-${athleteId}`);
+    if (nav) {
+        const from = page * HIST_PAGE_SIZE + 1;
+        const to   = Math.min((page + 1) * HIST_PAGE_SIZE, records.length);
+        const btnStyle = `
+            padding:5px 12px; border-radius:8px; font-size:11px; font-weight:700;
+            cursor:pointer; font-family:var(--font); transition:all 0.15s;
+        `;
+        nav.innerHTML = `
+            <div style="display:flex; align-items:center; gap:10px; justify-content:flex-end; margin-top:10px">
+                <span style="font-size:11px; color:#636375">
+                    ${from}–${to} de ${records.length} sesiones
+                </span>
+                <button onclick="_histGoPage('${athleteId}', ${page - 1})"
+                    ${page === 0 ? 'disabled' : ''}
+                    style="${btnStyle} background:rgba(255,255,255,${page === 0 ? '0.03' : '0.07'}); border:1px solid rgba(255,255,255,${page === 0 ? '0.05' : '0.12'}); color:${page === 0 ? '#444' : '#fff'}">
+                    ← Anterior
+                </button>
+                ${Array.from({length: totalPages}, (_, i) => `
+                    <button onclick="_histGoPage('${athleteId}', ${i})"
+                        style="${btnStyle} background:${i === page ? 'rgba(0,229,255,0.15)' : 'rgba(255,255,255,0.04)'}; border:1px solid ${i === page ? 'rgba(0,229,255,0.4)' : 'rgba(255,255,255,0.08)'}; color:${i === page ? '#00E5FF' : '#9A9AAF'}; min-width:30px">
+                        ${i + 1}
+                    </button>
+                `).join('')}
+                <button onclick="_histGoPage('${athleteId}', ${page + 1})"
+                    ${page >= totalPages - 1 ? 'disabled' : ''}
+                    style="${btnStyle} background:rgba(255,255,255,${page >= totalPages - 1 ? '0.03' : '0.07'}); border:1px solid rgba(255,255,255,${page >= totalPages - 1 ? '0.05' : '0.12'}); color:${page >= totalPages - 1 ? '#444' : '#fff'}">
+                    Siguiente →
+                </button>
+            </div>`;
+    }
+}
+
+function _histGoPage(athleteId, page) {
+    _histPage[athleteId] = page;
+    renderHistoricalPage(athleteId);
+}
+
+/**
+ * ─── Tabla de Historial Ex-Gaussiano ───────────────────────────────────────────
+ * Genera un panel con tabla completa de registros históricos por día:
+ * Fecha | IRI | μ | σ | τ | τ Z-Score | Wellness | Wellness Z-Score | Estado
+ */
+function renderHistoricalDataTable(athleteId) {
+    const records = allPerformance
+        .filter(p => String(p.athleteId).trim() === String(athleteId).trim())
+        .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+    if (!records.length) return "";
+
+    _histPage[athleteId] = 0;
+
+    const html = `
     <div class="hist-panel" style="margin-top:20px">
-        <!-- Header -->
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px">
             <div>
                 <div style="font-size:9px; font-weight:700; letter-spacing:2px; color:#636375; margin-bottom:4px">HISTORIAL COMPLETO</div>
-                <div style="font-size:13px; font-weight:700; color:#fff">📋 Evolución Ex-Gaussiana por Día <span style="font-size:11px; color:#636375; font-weight:400">(${records.length} sesiones registradas)</span></div>
+                <div style="font-size:13px; font-weight:700; color:#fff">&#x1F4CB; Evolucion Ex-Gaussiana por Dia <span style="font-size:11px; color:#636375; font-weight:400">(${records.length} sesiones registradas)</span></div>
             </div>
             <div style="display:flex; gap:8px">
                 <button onclick="exportHistoricalCSV('${athleteId}')"
-                    style="padding:6px 14px; background:rgba(0,229,255,0.1); border:1px solid rgba(0,229,255,0.25); color:#00E5FF;
-                           border-radius:8px; font-size:10px; font-weight:700; cursor:pointer; letter-spacing:0.5px; font-family:var(--font)">
-                    ⬇ CSV
+                    style="padding:6px 14px; background:rgba(0,229,255,0.1); border:1px solid rgba(0,229,255,0.25); color:#00E5FF; border-radius:8px; font-size:10px; font-weight:700; cursor:pointer; letter-spacing:0.5px; font-family:var(--font)">
+                    &#x2B07; CSV
                 </button>
             </div>
         </div>
-
-        <!-- Leyenda de columnas clave -->
         <div style="display:flex; gap:16px; margin-bottom:12px; flex-wrap:wrap">
-            <div style="font-size:10px; color:#636375"><span style="color:#00E5FF; font-weight:700">μ</span> Velocidad Motora</div>
-            <div style="font-size:10px; color:#636375"><span style="color:#FF9F0A; font-weight:700">σ</span> Consistencia</div>
-            <div style="font-size:10px; color:#636375"><span style="color:#BF5AF2; font-weight:700">τ</span> Fatiga Central</div>
-            <div style="font-size:10px; color:#636375"><span style="color:#32D74B; font-weight:700">Z</span> = desviación vs. media personal 21d</div>
+            <div style="font-size:10px; color:#636375"><span style="color:#00E5FF; font-weight:700">mu</span> Velocidad Motora</div>
+            <div style="font-size:10px; color:#636375"><span style="color:#FF9F0A; font-weight:700">sigma</span> Consistencia</div>
+            <div style="font-size:10px; color:#636375"><span style="color:#BF5AF2; font-weight:700">tau</span> Fatiga Central</div>
+            <div style="font-size:10px; color:#636375"><span style="color:#32D74B; font-weight:700">Z</span> = desviacion vs. media personal 21d</div>
         </div>
-
-        <!-- Tabla scrollable -->
         <div style="overflow-x:auto; border-radius:10px; border:1px solid rgba(255,255,255,0.06); background:rgba(0,0,0,0.2)">
             <table style="width:100%; border-collapse:collapse; min-width:760px">
-                <thead>
-                    <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
-                        <th class="hist-th">FECHA</th>
-                        <th class="hist-th" style="text-align:center">IRI</th>
-                        <th class="hist-th" style="text-align:center">LAPSES</th>
-                        <th class="hist-th" style="text-align:center; color:#00E5FF">μ (ms)</th>
-                        <th class="hist-th" style="text-align:center; color:#FF9F0A">σ (ms)</th>
-                        <th class="hist-th" style="text-align:center; color:#BF5AF2">τ (ms)</th>
-                        <th class="hist-th" style="text-align:center; color:#BF5AF2">τ Z-Score</th>
-                        <th class="hist-th" style="text-align:center; color:#32D74B">WELLNESS</th>
-                        <th class="hist-th" style="text-align:center; color:#32D74B">W. Z-Score</th>
-                        <th class="hist-th" style="text-align:center">ESTADO</th>
-                    </tr>
-                </thead>
-                <tbody>${rows}</tbody>
+                <thead><tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
+                    <th class="hist-th">FECHA</th>
+                    <th class="hist-th" style="text-align:center">IRI</th>
+                    <th class="hist-th" style="text-align:center">LAPSES</th>
+                    <th class="hist-th" style="text-align:center; color:#00E5FF">u (ms)</th>
+                    <th class="hist-th" style="text-align:center; color:#FF9F0A">s (ms)</th>
+                    <th class="hist-th" style="text-align:center; color:#BF5AF2">t (ms)</th>
+                    <th class="hist-th" style="text-align:center; color:#BF5AF2">t Z-Score</th>
+                    <th class="hist-th" style="text-align:center; color:#32D74B">WELLNESS</th>
+                    <th class="hist-th" style="text-align:center; color:#32D74B">W. Z-Score</th>
+                    <th class="hist-th" style="text-align:center">ESTADO</th>
+                </tr></thead>
+                <tbody id="hist-tbody-${athleteId}"></tbody>
             </table>
         </div>
-
-        <!-- Nota técnica -->
+        <div id="hist-nav-${athleteId}"></div>
         <div style="margin-top:10px; font-size:10px; color:#636375; font-style:italic; line-height:1.5">
-            * Z-Scores calculados sobre ventana móvil de 21 días. Valores τ Z > 1.5 = alerta fatiga SNC. Wellness Z < −1.2 = alerta recuperación insuficiente.
+            * Z-Scores calculados sobre ventana movil de 21 dias. Valores t Z mayor 1.5 = alerta fatiga SNC. Wellness Z menor -1.2 = alerta recuperacion insuficiente.
         </div>
     </div>`;
+
+    setTimeout(() => renderHistoricalPage(athleteId), 0);
+    return html;
 }
 
 /**
