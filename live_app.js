@@ -76,6 +76,20 @@ function calcIVN(iri, lapses, externalLoad, meanLoad) {
 }
 
 /**
+ * Retorna la etiqueta del contexto de la línea base para una tarjeta de atleta.
+ * Protocolo Híbrido v2.1 — solo visible cuando baseline_context != UNKNOWN.
+ */
+function getBaselineContextLabel(context) {
+  const map = {
+    PRE_SEASON:       { label: 'Pre-temporada',  cls: 'text-green',  icon: '✅' },
+    IN_SEASON:        { label: 'Temporada',       cls: 'text-yellow', icon: '🟡' },
+    COMPETITION_WEEK: { label: 'Semana Compet.',  cls: 'text-red',    icon: '🔴' },
+    UNKNOWN:          { label: 'Sin contexto',    cls: 'text-muted',  icon: '❔' },
+  };
+  return map[context] || map['UNKNOWN'];
+}
+
+/**
  * Retorna etiqueta de la fuente de Wellness (M-04 — transparencia clínica).
  * Permite al clínico saber si el IRI se calculó con datos de Wellness completos.
  * Protocolo actual: 4 variables (sleepHours, sleepQuality, stressLevel, fatigueLevel).
@@ -162,6 +176,21 @@ function renderDashboard() {
     const fitBadge = p.advanced_analysis?.fit_quality === 'POOR'
       ? `<span title="Ajuste Ex-Gaussiano pobre (KS p=${p.advanced_analysis?.ks_pval}) — τ puede ser impreciso" style="color:var(--yellow);font-size:10px;margin-left:4px">⚠ FIT</span>`
       : '';
+    // ── Indicador de Baseline Protocolo Hírido v2.1 ──
+    // Muestra cuántos registros válidos sustentaron el Z-Score de τ hoy.
+    // Si n < ROLLING_BASELINE_MIN (5) → badge de advertencia: baseline en construcción.
+    const baselineN       = p.advanced_analysis?.rolling_baseline_n_actual;
+    const baselineMin     = p.advanced_analysis?.rolling_baseline_min_required ?? 5;
+    const baselineReq     = p.advanced_analysis?.rolling_baseline_n_requested ?? 15;
+    const baselineCtx     = p.advanced_analysis?.baseline_context || 'UNKNOWN';
+    const ctxLbl          = getBaselineContextLabel(baselineCtx);
+    const baselineBadge   = baselineN != null
+      ? `<span
+            title="Protocolo Híbrido: Línea base calculada sobre ${baselineN} sesión${baselineN !== 1 ? 'es' : ''} con τ válido (mín ${baselineMin} requerido, objetivo ${baselineReq}). Contexto: ${ctxLbl.label}"
+            style="font-size:9px; opacity:0.85; margin-left:4px; cursor:help"
+            class="${baselineN < baselineMin ? 'text-yellow' : 'text-muted'}"
+         >${baselineN < baselineMin ? '⚠️' : '📊'} Base: ${baselineN}/${baselineReq}</span>`
+      : '';
     return `
       <div class="athlete-card" onclick="openModal('${p.id}')">
         <div class="athlete-avatar">
@@ -174,6 +203,7 @@ function renderDashboard() {
             ${p.position || '—'}
             <span class="${wSrc.cls}" style="font-size:9px;opacity:0.8" title="Fuente Wellness">${wSrc.label}</span>
             ${fitBadge}
+            ${baselineBadge}
           </div>
         </div>
         <div class="athlete-metrics">
@@ -262,7 +292,12 @@ function renderAthletesTable(filter='') {
       // Buscar si tiene performance hoy
       const p = allPerformance.find(x => x.athleteId === a.id);
       const hasData = !!p;
-      
+      // Baseline context del documento del atleta
+      const bCtx    = a.baseline_context || 'UNKNOWN';
+      const bLbl    = getBaselineContextLabel(bCtx);
+      const bStart  = a.baseline_start_date || '';
+      const bTooltip = `Contexto Baseline: ${bLbl.label}${bStart ? ' | Inicio: ' + bStart : ''}`;
+
       return `<tr onclick="openModal('${hasData ? p.id : a.id}', ${!hasData})">
         <td><strong>${a.fullName}</strong></td>
         <td>${a.position || '—'}</td>
@@ -279,6 +314,16 @@ function renderAthletesTable(filter='') {
             ${hasData ? 'VINCULADO' : 'SIN REGISTRO'}
           </span>
         </td>
+        <td>
+          <!-- Indicador de contexto de baseline con botón de edición -->
+          <span class="${bLbl.cls}" style="font-size:10px; margin-right:6px" title="${bTooltip}">
+            ${bLbl.icon} ${bLbl.label}
+          </span>
+          <button class="btn-mini" title="${bTooltip}"
+            onclick="event.stopPropagation(); openBaselineContextModal('${a.id}', '${a.fullName}', '${bCtx}', '${bStart}')">
+            ✏️ Baseline
+          </button>
+        </td>
         <td><button class="btn-mini" onclick="event.stopPropagation(); showView('upload'); document.getElementById('upload-athlete').value='${a.id}'">Vincular GPS</button></td>
       </tr>`;
     });
@@ -288,7 +333,7 @@ function renderAthletesTable(filter='') {
       <thead>
         <tr>
           <th>ATLETA (SNC)</th><th>POSICIÓN</th><th>IRI</th><th>LAPSES</th>
-          <th>Z5</th><th>RIESGO</th><th>ESTADO</th><th>ACCIÓN</th>
+          <th>Z5</th><th>RIESGO</th><th>ESTADO</th><th>CONTEXTO BASELINE</th><th>ACCIÓN</th>
         </tr>
       </thead>
       <tbody>${rows.join('')}</tbody>
@@ -362,6 +407,136 @@ function closeModal(e) {
     document.getElementById('athlete-modal').classList.add('hidden');
   }
 }
+
+// ═══════════════════════════════════════════
+// BASELINE CONTEXT MODAL (Protocolo Hírido v2.1)
+// ═══════════════════════════════════════════
+
+/**
+ * Abre un modal para que el psicólogo seleccione el contexto de la línea base
+ * estática de un atleta. Llama a la Cloud Function set_athlete_baseline_context.
+ */
+function openBaselineContextModal(athleteId, athleteName, currentContext, currentStartDate) {
+  // Crear overlay si no existe
+  let overlay = document.getElementById('baseline-context-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'baseline-context-overlay';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:9999',
+      'background:rgba(0,0,0,0.7)', 'display:flex',
+      'align-items:center', 'justify-content:center',
+      'backdrop-filter:blur(4px)'
+    ].join(';');
+    document.body.appendChild(overlay);
+  }
+
+  const CONTEXTS = [
+    { value: 'PRE_SEASON',       label: '\u2705 Pre-temporada',    desc: 'Atleta en descanso / pretemporada. Baseline limpio y sin sesgos de carga competitiva. Óptimo para la línea base.' },
+    { value: 'IN_SEASON',        label: '\ud83d\udfe1 Temporada activa',    desc: 'Mediciones tomadas durante semanas de entrenamiento normal. Baseline moderadamente representativo.' },
+    { value: 'COMPETITION_WEEK', label: '\ud83d\udd34 Semana de competencia', desc: 'Baseline capturado en semana de partido/competencia. El Z-Score puede estar sesgado — útil para alertas pero interpretar con cautela.' },
+    { value: 'UNKNOWN',          label: '\u2754 Sin clasificar',     desc: 'Contexto desconocido. El sistema operará con los datos disponibles sin advertencias adicionales.' },
+  ];
+
+  overlay.innerHTML = `
+    <div style="
+      background: linear-gradient(145deg, #1a1a2e, #16213e);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px;
+      padding: 32px;
+      width: 520px;
+      max-width: 95vw;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+    ">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px">
+        <div>
+          <div style="font-size:10px; font-weight:700; letter-spacing:2px; color:var(--blue); margin-bottom:4px">PROTOCOLO HÍBRIDO v2.1</div>
+          <h2 style="font-size:20px; font-weight:800; color:#fff; margin:0">Contexto de Línea Base</h2>
+          <p style="font-size:12px; color:var(--text-2); margin:6px 0 0">${athleteName}</p>
+        </div>
+        <button onclick="document.getElementById('baseline-context-overlay').remove()" style="
+          background:transparent; border:none; color:var(--text-2); font-size:20px; cursor:pointer; padding:8px
+        ">✕</button>
+      </div>
+
+      <p style="font-size:12px; color:var(--text-2); margin-bottom:20px; line-height:1.6">
+        Indica en qué período se tomaron las primeras mediciones de onboarding.
+        Esto <strong style="color:#fff">no altera el cálculo matemático</strong> del Z-Score,
+        pero se almacena como metadato clínico en cada registro del atleta.
+      </p>
+
+      <div id="baseline-ctx-options" style="display:flex; flex-direction:column; gap:10px; margin-bottom:20px">
+        ${CONTEXTS.map(c => `
+          <label style="
+            display:flex; align-items:flex-start; gap:14px;
+            background: rgba(255,255,255,${currentContext === c.value ? '0.08' : '0.03'});
+            border: 1px solid rgba(255,255,255,${currentContext === c.value ? '0.2' : '0.06'});
+            border-radius: 12px; padding: 14px 16px;
+            cursor: pointer; transition: all 0.2s;
+          " onmouseover="this.style.background='rgba(255,255,255,0.07)'" onmouseout="this.style.background='rgba(255,255,255,${currentContext === c.value ? '0.08' : '0.03'})'">
+            <input type="radio" name="baseline-ctx" value="${c.value}"
+              ${currentContext === c.value ? 'checked' : ''}
+              style="margin-top:3px; accent-color:var(--blue); width:16px; height:16px; flex-shrink:0">
+            <div>
+              <div style="font-size:13px; font-weight:600; color:#fff; margin-bottom:3px">${c.label}</div>
+              <div style="font-size:11px; color:var(--text-2); line-height:1.5">${c.desc}</div>
+            </div>
+          </label>
+        `).join('')}
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label style="font-size:11px; font-weight:600; color:var(--text-2); letter-spacing:1px; display:block; margin-bottom:8px">FECHA DE INICIO DEL ONBOARDING (opcional)</label>
+        <input type="date" id="baseline-ctx-date" value="${currentStartDate || ''}" style="
+          width:100%; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);
+          border-radius:10px; padding:10px 14px; color:#fff; font-size:13px;
+        ">
+      </div>
+
+      <div style="display:flex; gap:12px">
+        <button onclick="document.getElementById('baseline-context-overlay').remove()" style="
+          flex:1; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1);
+          border-radius:10px; padding:12px; color:var(--text-2); font-size:13px; cursor:pointer;
+        ">Cancelar</button>
+        <button id="btn-save-baseline-ctx" onclick="saveBaselineContext('${athleteId}')" style="
+          flex:2; background:linear-gradient(135deg, var(--blue), #5E5CE6);
+          border:none; border-radius:10px; padding:12px; color:#fff;
+          font-size:13px; font-weight:700; cursor:pointer;
+        ">✓ Guardar Contexto de Línea Base</button>
+      </div>
+    </div>`;
+}
+
+/**
+ * Llama a la Cloud Function set_athlete_baseline_context y actualiza el documento del atleta.
+ */
+async function saveBaselineContext(athleteId) {
+  const selected  = document.querySelector('input[name="baseline-ctx"]:checked');
+  const startDate = document.getElementById('baseline-ctx-date')?.value || '';
+  if (!selected) { showToast('error', 'Error', 'Selecciona un contexto.'); return; }
+
+  const btn = document.getElementById('btn-save-baseline-ctx');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...' }
+
+  try {
+    const fn = firebase.functions().httpsCallable('set_athlete_baseline_context');
+    const res = await fn({
+      athleteId:         athleteId,
+      baselineContext:   selected.value,
+      baselineStartDate: startDate,
+    });
+    if (res.data?.status === 'success') {
+      showToast('success', '\u2713 Contexto guardado', res.data.message || 'Línea base actualizada.');
+      document.getElementById('baseline-context-overlay')?.remove();
+    } else {
+      throw new Error(res.data?.message || 'Error desconocido');
+    }
+  } catch (err) {
+    showToast('error', '\u2715 Error', err.message || 'No se pudo actualizar el contexto.');
+    if (btn) { btn.disabled = false; btn.textContent = '\u2713 Guardar Contexto de Línea Base'; }
+  }
+}
+
 
 // ═══════════════════════════════════════════
 // CSV UPLOAD & IVN CALCULATION (client-side)

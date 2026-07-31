@@ -1324,15 +1324,21 @@ function renderExGaussPanel(p) {
     const aa = p?.advanced_analysis;
 
     // ── Sin datos: mostrar estado de calibración ──
-    if (!aa || (aa.status === 'INSUFFICIENT_TRIALS' && aa.mu_ms == null)) {
-        const n = aa?.n_trials ?? p?.pvt?.metrics?.trials?.length ?? '?';
+    // Condición: sin advanced_analysis, o el análisis no produjo resultados (mu_ms == null)
+    // Cubre: (1) sin datos, (2) INSUFFICIENT_TRIALS, (3) race condition del worker
+    if (!aa || aa.mu_ms == null) {
+        const n = aa?.n_trials ?? p?.pvt?.metrics?.trials?.length ?? p?.pvt?.logs?.length ?? '?';
+        const nNum = typeof n === 'number' ? n : parseInt(n) || 0;
+        const hasSufficientTrials = nNum >= 20;
+        const msgDetalle = hasSufficientTrials
+            ? `Trials registrados: <strong>${n}</strong>. El worker procesará y registrará el análisis en breve.`
+            : `Trials registrados: <strong>${n}</strong>. Se requieren ≥ 20 trials PVT por sesión para el ajuste Ex-Gaussiano.`;
         return `
         <div class="prescription-box" style="border-left: 3px solid #636375; margin-bottom: 12px">
-            <div class="prescription-title" style="color:#636375">🔬 ANÁLISIS EX-GAUSSIANO — CALIBRANDO</div>
+            <div class="prescription-title" style="color:#636375">🔬 ANÁLISIS EX-GAUSSIANO — ${hasSufficientTrials ? 'PROCESANDO' : 'CALIBRANDO'}</div>
             <div class="prescription-text" style="font-size:12px; color:var(--text-3)">
                 El análisis distribucional avanzado (μ, σ, τ) requiere <strong>≥ 20 trials PVT</strong> por sesión.<br>
-                Trials registrados hoy: <strong>${n}</strong>. 
-                El worker procesará este atleta cuando tenga suficientes datos.<br>
+                ${msgDetalle}<br>
                 <em style="opacity:0.5">Protocolo PVT-B activo: se requieren 30 estímulos por sesión.</em>
             </div>
         </div>`;

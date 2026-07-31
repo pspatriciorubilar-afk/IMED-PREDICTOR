@@ -373,6 +373,10 @@ def _execute_exgauss_analysis(db, athlete_id: str, athlete_name: str, date_str: 
     """
     Ejecuta el worker Ex-Gaussiano en cualquier proceso de sync o recuperación.
     Asegura que los cálculos Tau/Z-Score nunca falten al regenerar Daily_Performance.
+
+    FIX: Si m_data no contiene trials (race condition del trigger Firestore),
+    se realiza un fallback leyendo la medición directamente desde Firestore.
+    Esto garantiza que el análisis siempre se ejecute cuando hay ≥20 trials.
     """
     try:
         import pvt_exgauss_worker
@@ -386,18 +390,62 @@ def _execute_exgauss_analysis(db, athlete_id: str, athlete_name: str, date_str: 
             m_data.get("trials") or
             []
         )
-        if trials:
-            measurement_payload = {
-                "athlete_id": athlete_id,
-                "athlete_name": athlete_name,
-                "date": date_str,
-                "trials": [float(t) for t in trials if isinstance(t, (int, float))],
-                "wellness": m_data.get("wellness"),
-                "iri": m_data.get("iri")
-            }
-            pvt_exgauss_worker.process_athlete(db, measurement_payload, date_str)
+
+        # ── FALLBACK: Si no hay trials en m_data, leer directamente desde Firestore ──
+        # Esto resuelve el race condition donde el trigger se dispara antes de que
+        # la app mobile termine de escribir todos los campos del documento.
+        if not trials:
+            print(f"[EX-GAUSS] Sin trials en m_data para {athlete_name} ({date_str}). Leyendo desde Firestore...")
+            fresh_docs = (
+                db.collection("athletes").document(athlete_id)
+                .collection("measurements")
+                .where("date", "==", date_str)
+                .order_by("timestamp", direction=firestore.Query.DESCENDING)
+                .limit(1)
+                .stream()
+            )
+            for fresh_doc in fresh_docs:
+                fresh = fresh_doc.to_dict()
+                pvt_fresh = fresh.get("pvt", {})
+                metrics_fresh = pvt_fresh.get("metrics", {})
+                trials = (
+                    metrics_fresh.get("trials") or
+                    metrics_fresh.get("rawReactionTimes") or
+                    pvt_fresh.get("trials") or
+                    pvt_fresh.get("logs") or
+                    fresh.get("trials") or
+                    []
+                )
+                # Actualizar m_data con los datos frescos del wellness
+                if not m_data.get("wellness") and fresh.get("wellness"):
+                    m_data = fresh
+                if trials:
+                    print(f"[EX-GAUSS] Fallback exitoso: {len(trials)} trials encontrados en Firestore para {athlete_name} ({date_str}).")
+                break
+
+        if not trials:
+            print(f"[EX-GAUSS] Sin trials disponibles para {athlete_name} ({date_str}). Saltando análisis.")
+            return
+
+        valid_trials = [float(t) for t in trials if isinstance(t, (int, float))]
+        if not valid_trials:
+            print(f"[EX-GAUSS] Trials no son numéricos para {athlete_name} ({date_str}). Saltando análisis.")
+            return
+
+        measurement_payload = {
+            "athlete_id": athlete_id,
+            "athlete_name": athlete_name,
+            "date": date_str,
+            "trials": valid_trials,
+            "wellness": m_data.get("wellness"),
+            "iri": m_data.get("iri")
+        }
+        pvt_exgauss_worker.process_athlete(db, measurement_payload, date_str)
+        print(f"[EX-GAUSS] ✅ Análisis completado para {athlete_name} ({date_str}).")
     except Exception as ex_err:
+        import traceback
         print(f"[ERROR EX-GAUSS] Worker falló en {athlete_name} ({date_str}): {str(ex_err)}")
+        traceback.print_exc()
 
 @firestore_fn.on_document_created(document="athletes/{athlete_id}/measurements/{measurement_id}")
 def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
@@ -457,6 +505,8 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         print(f"[AUTO-SYNC] ✅ Daily_Performance actualizado para {athlete_name} ({date_str})")
 
         # ── PASO 2: DISPARADOR EX-GAUSSIANO (best-effort, no bloquea el sync) ──
+        # NOTA: Se pasa m_data con la data del evento. Si el evento no tiene trials
+        # (race condition), _execute_exgauss_analysis hace fallback a Firestore.
         _execute_exgauss_analysis(db, athlete_id, athlete_name, date_str, m_data)
 
     except Exception as e:
@@ -710,11 +760,17 @@ def manual_register(req: https_fn.CallableRequest) -> dict:
     """
     db = firestore.client()
     try:
-        athlete_id   = req.data.get("athleteId", "").strip()
-        date_str     = req.data.get("date", "").strip()
-        iri          = int(req.data.get("iri", 0))
-        lapses       = int(req.data.get("lapses", 0))
-        mean_latency = int(req.data.get("meanLatency", 0))
+        athlete_id      = req.data.get("athleteId", "").strip()
+        date_str        = req.data.get("date", "").strip()
+        iri             = int(req.data.get("iri", 0))
+        lapses          = int(req.data.get("lapses", 0))
+        mean_latency    = int(req.data.get("meanLatency", 0))
+        # Protocolo Híbrido v2.1: contexto de línea base estática
+        # Valores válidos: "PRE_SEASON" | "IN_SEASON" | "COMPETITION_WEEK" | "UNKNOWN"
+        baseline_context = req.data.get("baselineContext", "UNKNOWN").strip()
+        VALID_BASELINE_CONTEXTS = {"PRE_SEASON", "IN_SEASON", "COMPETITION_WEEK", "UNKNOWN"}
+        if baseline_context not in VALID_BASELINE_CONTEXTS:
+            baseline_context = "UNKNOWN"
 
         if not athlete_id or not date_str:
             return {"status": "error", "message": "athleteId y date son requeridos."}
@@ -734,6 +790,13 @@ def manual_register(req: https_fn.CallableRequest) -> dict:
         if athlete_doc.exists:
             ad = athlete_doc.to_dict()
             athlete_name = f"{ad.get('firstName','')} {ad.get('lastName','')}".strip() or athlete_id
+            # Persistir baseline_context si aún no estaba definido (primera vez)
+            if not ad.get("baseline_context") or ad.get("baseline_context") == "UNKNOWN":
+                db.collection("athletes").document(athlete_id).update({
+                    "baseline_context":    baseline_context,
+                    "baseline_start_date": date_str,
+                })
+                print(f"[MANUAL] baseline_context seteado: {athlete_name} → {baseline_context} (desde {date_str})")
         else:
             athlete_name = athlete_id
 
@@ -778,6 +841,76 @@ def manual_register(req: https_fn.CallableRequest) -> dict:
 
     except Exception as e:
         print(f"[MANUAL-ERROR] {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+@https_fn.on_call()
+def set_athlete_baseline_context(req: https_fn.CallableRequest) -> dict:
+    """
+    Protocolo Híbrido v2.1 — Actualiza el contexto de la Línea Base Estática de un atleta.
+    Permite al psicólogo indicar en qué contexto se capturaron las primeras mediciones
+    (onboarding), para que el sistema etiquete correctamente la calidad del baseline.
+
+    Este campo es almacenado en athletes/{id} y en cada registro de Daily_Performance
+    a través del worker Ex-Gaussiano. Su impacto es de trazabilidad clínica — no altera
+    el cálculo matemático, pero queda registrado como advertencia interpretativa.
+
+    Parámetros:
+        athleteId:       ID del atleta en Firestore
+        baselineContext: "PRE_SEASON" | "IN_SEASON" | "COMPETITION_WEEK" | "UNKNOWN"
+        baselineStartDate: (opcional) Fecha de inicio de la línea base (YYYY-MM-DD)
+    """
+    caller_role = _get_caller_role(req)
+    if caller_role not in {ROLE_PSICOLOGO, ROLE_SUPER_ADMIN}:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: se requiere rol de Psicólogo o Super Admin."
+        )
+
+    athlete_id   = req.data.get("athleteId", "").strip()
+    context      = req.data.get("baselineContext", "UNKNOWN").strip()
+    start_date   = req.data.get("baselineStartDate", "").strip()
+
+    VALID_CONTEXTS = {"PRE_SEASON", "IN_SEASON", "COMPETITION_WEEK", "UNKNOWN"}
+    if not athlete_id:
+        return {"status": "error", "message": "athleteId requerido."}
+    if context not in VALID_CONTEXTS:
+        return {"status": "error", "message": f"Contexto inválido. Valores permitidos: {VALID_CONTEXTS}"}
+
+    db = firestore.client()
+    try:
+        athlete_snap = db.collection("athletes").document(athlete_id).get()
+        if not athlete_snap.exists:
+            return {"status": "error", "message": "Atleta no encontrado."}
+
+        ad = athlete_snap.to_dict()
+        athlete_name = f"{ad.get('firstName','')} {ad.get('lastName','')}".strip() or athlete_id
+
+        update_data = {"baseline_context": context}
+        if start_date:
+            update_data["baseline_start_date"] = start_date
+
+        db.collection("athletes").document(athlete_id).update(update_data)
+
+        _log_audit(
+            action="SET_BASELINE_CONTEXT",
+            actor_uid=req.auth.uid,
+            target=athlete_id,
+            details={
+                "athlete_name":    athlete_name,
+                "baseline_context": context,
+                "baseline_start_date": start_date or "(no especificada)",
+            }
+        )
+        print(f"[BASELINE-CTX] {athlete_name}: baseline_context='{context}' | start='{start_date}'")
+        return {
+            "status":  "success",
+            "message": f"Contexto de línea base de {athlete_name} actualizado a '{context}'.",
+            "athlete_name":     athlete_name,
+            "baseline_context": context,
+        }
+    except Exception as e:
+        print(f"[BASELINE-CTX-ERROR] {str(e)}")
         return {"status": "error", "message": str(e)}
 
 
