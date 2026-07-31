@@ -176,21 +176,6 @@ function renderDashboard() {
     const fitBadge = p.advanced_analysis?.fit_quality === 'POOR'
       ? `<span title="Ajuste Ex-Gaussiano pobre (KS p=${p.advanced_analysis?.ks_pval}) — τ puede ser impreciso" style="color:var(--yellow);font-size:10px;margin-left:4px">⚠ FIT</span>`
       : '';
-    // ── Indicador de Baseline Protocolo Hírido v2.1 ──
-    // Muestra cuántos registros válidos sustentaron el Z-Score de τ hoy.
-    // Si n < ROLLING_BASELINE_MIN (5) → badge de advertencia: baseline en construcción.
-    const baselineN       = p.advanced_analysis?.rolling_baseline_n_actual;
-    const baselineMin     = p.advanced_analysis?.rolling_baseline_min_required ?? 5;
-    const baselineReq     = p.advanced_analysis?.rolling_baseline_n_requested ?? 15;
-    const baselineCtx     = p.advanced_analysis?.baseline_context || 'UNKNOWN';
-    const ctxLbl          = getBaselineContextLabel(baselineCtx);
-    const baselineBadge   = baselineN != null
-      ? `<span
-            title="Protocolo Híbrido: Línea base calculada sobre ${baselineN} sesión${baselineN !== 1 ? 'es' : ''} con τ válido (mín ${baselineMin} requerido, objetivo ${baselineReq}). Contexto: ${ctxLbl.label}"
-            style="font-size:9px; opacity:0.85; margin-left:4px; cursor:help"
-            class="${baselineN < baselineMin ? 'text-yellow' : 'text-muted'}"
-         >${baselineN < baselineMin ? '⚠️' : '📊'} Base: ${baselineN}/${baselineReq}</span>`
-      : '';
     return `
       <div class="athlete-card" onclick="openModal('${p.id}')">
         <div class="athlete-avatar">
@@ -203,7 +188,6 @@ function renderDashboard() {
             ${p.position || '—'}
             <span class="${wSrc.cls}" style="font-size:9px;opacity:0.8" title="Fuente Wellness">${wSrc.label}</span>
             ${fitBadge}
-            ${baselineBadge}
           </div>
         </div>
         <div class="athlete-metrics">
@@ -292,7 +276,7 @@ function renderAthletesTable(filter='') {
       // Buscar si tiene performance hoy
       const p = allPerformance.find(x => x.athleteId === a.id);
       const hasData = !!p;
-      // Baseline context del documento del atleta
+      // Baseline context del documento del atleta (solo para el botón discreto)
       const bCtx    = a.baseline_context || 'UNKNOWN';
       const bLbl    = getBaselineContextLabel(bCtx);
       const bStart  = a.baseline_start_date || '';
@@ -315,16 +299,12 @@ function renderAthletesTable(filter='') {
           </span>
         </td>
         <td>
-          <!-- Indicador de contexto de baseline con botón de edición -->
-          <span class="${bLbl.cls}" style="font-size:10px; margin-right:6px" title="${bTooltip}">
-            ${bLbl.icon} ${bLbl.label}
-          </span>
-          <button class="btn-mini" title="${bTooltip}"
+          <button class="btn-mini" onclick="event.stopPropagation(); showView('upload'); document.getElementById('upload-athlete').value='${a.id}'">Vincular GPS</button>
+          <button class="btn-mini" title="${bTooltip}" style="margin-left:4px; opacity:0.6"
             onclick="event.stopPropagation(); openBaselineContextModal('${a.id}', '${a.fullName}', '${bCtx}', '${bStart}')">
-            ✏️ Baseline
+            ${bLbl.icon}
           </button>
         </td>
-        <td><button class="btn-mini" onclick="event.stopPropagation(); showView('upload'); document.getElementById('upload-athlete').value='${a.id}'">Vincular GPS</button></td>
       </tr>`;
     });
 
@@ -333,7 +313,7 @@ function renderAthletesTable(filter='') {
       <thead>
         <tr>
           <th>ATLETA (SNC)</th><th>POSICIÓN</th><th>IRI</th><th>LAPSES</th>
-          <th>Z5</th><th>RIESGO</th><th>ESTADO</th><th>CONTEXTO BASELINE</th><th>ACCIÓN</th>
+          <th>Z5</th><th>RIESGO</th><th>ESTADO</th><th>ACCIÓN</th>
         </tr>
       </thead>
       <tbody>${rows.join('')}</tbody>
