@@ -39,3 +39,15 @@ Thumbs.db
 .firebase/
 functions/serviceAccount.json
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Scratch and Temporary files
+scratch/
+*.csv
+*.json
+
+# Specific project folders
+DDI_REGISTRO_IMED_PREDICTOR/

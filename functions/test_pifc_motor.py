@@ -159,3 +159,35 @@ def test_exg_alert_always_present():
         result = classify_exgauss_status(tau_z, w_z, tau)
         assert "exg_alert" in result
         assert len(result["exg_alert"]) > 10
+
+
+# ─── Tests Patch v2.2: Lapse Hard-Override Rule ──────────────────────────────
+
+def test_lapse_override_single_lapse_elevates_green_to_yellow():
+    """1 lapse en un estado nomalmente GREEN debe elevar el estado a YELLOW."""
+    result = classify_exgauss_status(tau_zscore=0.664, wellness_zscore=0.0, tau_ms=62.02, lapses_count=1)
+    assert result["readiness_status"] == "YELLOW"
+    assert result["lapse_override_applied"] is True
+    assert result["lapse_override_reason"] == "SINGLE_LAPSE_OVERRIDE"
+
+def test_lapse_override_critical_lapses_elevates_green_to_orange():
+    """2 o más lapses en un estado GREEN deben elevar el estado a ORANGE."""
+    result = classify_exgauss_status(tau_zscore=0.964, wellness_zscore=0.0, tau_ms=56.35, lapses_count=2)
+    assert result["readiness_status"] == "ORANGE"
+    assert result["lapse_override_applied"] is True
+    assert result["lapse_override_reason"] == "CRITICAL_LAPSES_DETECTED"
+
+def test_lapse_override_critical_lapses_elevates_yellow_to_orange():
+    """2 o más lapses en un estado YELLOW deben elevar el estado a ORANGE."""
+    result = classify_exgauss_status(tau_zscore=1.2, wellness_zscore=0.0, tau_ms=65.0, lapses_count=2)
+    assert result["readiness_status"] == "ORANGE"
+    assert result["lapse_override_applied"] is True
+    assert result["lapse_override_reason"] == "CRITICAL_LAPSES_DETECTED"
+
+def test_lapse_override_no_lapses_no_override():
+    """0 lapses no debe aplicar sobrescritura."""
+    result = classify_exgauss_status(tau_zscore=0.4, wellness_zscore=0.0, tau_ms=50.0, lapses_count=0)
+    assert result["readiness_status"] == "GREEN"
+    assert result["lapse_override_applied"] is False
+    assert result["lapse_override_reason"] is None
+
