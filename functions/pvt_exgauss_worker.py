@@ -498,6 +498,16 @@ def classify_exgauss_status(tau_zscore: float | None, wellness_zscore: float | N
     return status_dict
 
 
+def _parse_trials(trials):
+    valid_trials = []
+    for t in trials:
+        try:
+            valid_trials.append(float(t))
+        except (ValueError, TypeError):
+            pass
+    return valid_trials
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MÓDULO 4: EXTRACCIÓN DE DATOS DESDE FIRESTORE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -544,7 +554,7 @@ def get_today_measurements(db, today_str: str) -> list[dict]:
                     "athlete_id":  athlete_id,
                     "athlete_name": f"{ath_data.get('firstName','')} {ath_data.get('lastName','')}".strip() or athlete_id,
                     "date":        today_str,
-                    "trials":      [float(t) for t in trials if isinstance(t, (int, float))],
+                    "trials":      _parse_trials(trials),
                     "wellness":    m.get("wellness"),
                     "iri":         m.get("iri"),
                     "measurement_id": m_doc.id,
@@ -638,7 +648,10 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
     if lapses_count is None:
         lapses_count = len([t for t in trials if t >= 500.0]) if trials else 0
     else:
-        lapses_count = int(lapses_count)
+        try:
+            lapses_count = int(lapses_count)
+        except (ValueError, TypeError):
+            lapses_count = len([t for t in trials if t >= 500.0]) if trials else 0
 
     status = classify_exgauss_status(
         tau_zscore=zscores.get("tau_zscore"),

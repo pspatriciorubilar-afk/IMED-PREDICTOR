@@ -1,4 +1,4 @@
-﻿/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════
    IMED PREDICTOR — app_v411_final.js
    Version: 4.13.0 (PRECISION & TRANSPARENCY UPDATE)
    Features: Real-time Sync, Integrated IVN, GPS Upload, Trends
@@ -2170,9 +2170,10 @@ function _generateExGaussTrials(mu, sigma, tau, n, lapseCount, fastest, meanRT) 
     const actualLapses = trials.filter(t => t >= 500).length;
     const diff = lapseCount - actualLapses;
     if (diff > 0) {
-        // Añadir lapses al final
-        for (let i = 0; i < diff; i++) trials.push(Math.round(500 + rand() * 200));
-        trials.splice(n); // mantener N ensayos
+        // Reemplazar los ensayos más rápidos con lapses para mantener N ensayos
+        for (let i = 0; i < diff; i++) {
+            trials[i] = Math.round(500 + rand() * 200);
+        }
     }
     // Reshuffle para simular orden temporal
     for (let i = n - 1; i > 0; i--) {

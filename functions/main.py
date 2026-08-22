@@ -432,7 +432,12 @@ def _execute_exgauss_analysis(db, athlete_id: str, athlete_name: str, date_str: 
             print(f"[EX-GAUSS] Sin trials disponibles para {athlete_name} ({date_str}). Saltando análisis.")
             return
 
-        valid_trials = [float(t) for t in trials if isinstance(t, (int, float))]
+        valid_trials = []
+        for t in trials:
+            try:
+                valid_trials.append(float(t))
+            except (ValueError, TypeError):
+                pass
         if not valid_trials:
             print(f"[EX-GAUSS] Trials no son numéricos para {athlete_name} ({date_str}). Saltando análisis.")
             return
@@ -1367,7 +1372,12 @@ def daily_exgauss_reprocess_job(event: scheduler_fn.ScheduledEvent) -> None:
                         m_data.get("trials") or
                         []
                     )
-                    valid_trials = [float(t) for t in trials if isinstance(t, (int, float))]
+                    valid_trials = []
+                    for t in trials:
+                        try:
+                            valid_trials.append(float(t))
+                        except (ValueError, TypeError):
+                            pass
                     if len(valid_trials) >= 20:
                         payload = {
                             "athlete_id": aid,
