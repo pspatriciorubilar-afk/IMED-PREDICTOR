@@ -175,15 +175,32 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MÓDULO 2: Z-SCORES (Ventana 21 días)
+# MÓDULO 2: Z-SCORES (Ventana por N Registros Válidos — Protocolo Híbrido)
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ─── Parámetros del Protocolo Híbrido de Monitoreo Discontinuo ────────────────
+# Fundamento: Rubilar (2026) — Protocolo Híbrido Validado
+# Con 3–4 mediciones/semana, una ventana de días calendario sesga la media hacia
+# los momentos de mayor estrés. El Z-Score debe indexarse sobre los últimos N
+# registros VÁLIDOS (con tau_ms presente), independientemente del gap temporal.
+ROLLING_BASELINE_N       = 15  # Últimas N sesiones válidas (con tau_ms) para la línea base
+ROLLING_BASELINE_MIN     =  5  # Mínimo de registros para activar Z-Score (antes: 3)
+ROLLING_BASELINE_BUFFER  = ROLLING_BASELINE_N * 4  # Buffer amplio de lectura para filtrar
+# ──────────────────────────────────────────────────────────────────────────────
 
 def compute_zscores(db, athlete_id: str, today_str: str,
                     tau_today: float, wellness_today: float | None) -> dict:
     """
-    Calcula Z-Scores de τ y Wellness vs. línea base individual de 21 días.
+    Calcula Z-Scores de τ y Wellness vs. línea base individual del atleta.
 
-    Z = (X_hoy - X̄_21d) / SD_21d
+    Z = (X_hoy - X̄_N) / SD_N
+
+    PROTOCOLO HÍBRIDO v2.1:
+    La ventana usa los últimos ROLLING_BASELINE_N (=15) registros con tau_ms VÁLIDO,
+    en lugar de los últimos 21 días calendario. Esto garantiza que:
+    - Un atleta medido 3 días/semana tiene la misma calidad estadística que uno medido 7.
+    - Los gaps de días sin medición no inflan artificialmente el promedio.
+    - La homeostasis real del atleta (incluyendo días de descanso) se representa.
 
     Interpretación de τ_zscore:
         > +1.5  → Cola atencional prolongada (ALERTA)
@@ -196,21 +213,23 @@ def compute_zscores(db, athlete_id: str, today_str: str,
         today_str:       Fecha de hoy (YYYY-MM-DD) — se excluye del baseline
         tau_today:       τ calculado en la sesión de hoy
         wellness_today:  Score de wellness de hoy (0-100) o None
+        baseline_context: Contexto de la línea base estática del atleta
+                          ("PRE_SEASON" | "IN_SEASON" | "COMPETITION_WEEK" | "UNKNOWN")
+                          Se almacena como metadato, no altera el cálculo matemático.
 
     Returns:
-        dict con tau_zscore, wellness_zscore, baseline stats
+        dict con tau_zscore, wellness_zscore, baseline stats y campos de trazabilidad
     """
-    cutoff = (datetime.strptime(today_str, "%Y-%m-%d") - timedelta(days=21)).strftime("%Y-%m-%d")
-
     try:
-        # Leer historial de Daily_Performance de los últimos 21 días
+        # Leer un buffer amplio de Daily_Performance (sin cutoff de fecha).
+        # Filtramos luego por presencia de tau_ms para obtener solo registros válidos.
+        # PROTOCOLO HÍBRIDO: sin límite de fecha — tomamos los N últimos registros válidos.
         docs = (
             db.collection("Daily_Performance")
             .where("athleteId", "==", athlete_id)
-            .where("date", ">=", cutoff)
             .where("date", "<", today_str)
             .order_by("date", direction=firestore.Query.DESCENDING)
-            .limit(30)
+            .limit(ROLLING_BASELINE_BUFFER)
             .stream()
         )
 
@@ -220,10 +239,13 @@ def compute_zscores(db, athlete_id: str, today_str: str,
         for doc in docs:
             d = doc.to_dict()
             aa = d.get("advanced_analysis", {})
-            if aa.get("tau_ms"):
-                tau_history.append(float(aa["tau_ms"]))
+            tau_val = aa.get("tau_ms")
+            # Solo añadir si tau_ms es válido Y aún no alcanzamos el límite N
+            if tau_val and len(tau_history) < ROLLING_BASELINE_N:
+                tau_history.append(float(tau_val))
+            # Wellness: acumular hasta ROLLING_BASELINE_N (misma ventana para coherencia)
             w = d.get("wellness")
-            if isinstance(w, dict):
+            if isinstance(w, dict) and len(wellness_history) < ROLLING_BASELINE_N:
                 # Fórmula Wellness ponderada por evidencia (4 variables, máx 100 pts)
                 # Pesos basados en literatura de ciencias del deporte:
                 #   sleepHours   30 pts — mayor predictor de consolidación cognitiva (Watson et al., 2015)
@@ -244,15 +266,20 @@ def compute_zscores(db, athlete_id: str, today_str: str,
                 wellness_history.append(score)
 
         result = {
-            "tau_zscore":      None,
-            "wellness_zscore": None,
-            "tau_baseline_n":  len(tau_history),
-            "tau_baseline_mean": None,
-            "tau_baseline_sd":   None,
+            "tau_zscore":               None,
+            "wellness_zscore":          None,
+            "tau_baseline_n":           len(tau_history),
+            "tau_baseline_mean":        None,
+            "tau_baseline_sd":          None,
+            # ── Campos de trazabilidad del Protocolo Híbrido ──
+            "rolling_baseline_mode":         "N_VALID_RECORDS",
+            "rolling_baseline_n_requested":  ROLLING_BASELINE_N,
+            "rolling_baseline_min_required": ROLLING_BASELINE_MIN,
         }
 
         # ── Z-score de τ ──
-        if len(tau_history) >= 3:
+        # PROTOCOLO HÍBRIDO: mínimo ROLLING_BASELINE_MIN (=5) registros válidos
+        if len(tau_history) >= ROLLING_BASELINE_MIN:
             tau_mean = float(np.mean(tau_history))
             n = len(tau_history)
             sample_var = float(np.var(tau_history, ddof=1)) if n > 1 else 0.0
@@ -275,10 +302,10 @@ def compute_zscores(db, athlete_id: str, today_str: str,
             log.info(f"  τ Z-score: {result.get('tau_zscore')}  (base μ={tau_mean:.1f}ms SD={tau_sd:.1f}ms, n={len(tau_history)})")
         else:
             result["tau_baseline_status"] = "INSUFFICIENT_DENSITY"
-            log.info(f"  Insuficiente historial τ para Z-score ({len(tau_history)}/3 min)")
+            log.info(f"  Insuficiente historial τ para Z-score ({len(tau_history)}/{ROLLING_BASELINE_MIN} mín requerido — Protocolo Híbrido)")
 
         # ── Z-score de Wellness ──
-        if wellness_today is not None and len(wellness_history) >= 3:
+        if wellness_today is not None and len(wellness_history) >= ROLLING_BASELINE_MIN:
             w_mean = float(np.mean(wellness_history))
             n_w = len(wellness_history)
             sample_var_w = float(np.var(wellness_history, ddof=1)) if n_w > 1 else 0.0
@@ -334,9 +361,10 @@ PIFC_PROTOCOLS = {
 }
 
 def classify_exgauss_status(tau_zscore: float | None, wellness_zscore: float | None,
-                             tau_ms: float | None) -> dict:
+                             tau_ms: float | None, lapses_count: int = 0) -> dict:
     """
     Semáforo de estado basado en distribución Ex-Gaussiana y Motor PIFC.
+    Incluye la Regla de Sobrescritura Forzada por Lapses (Lapse Hard-Override Rule — Patch v2.2).
     """
     def _get_raw_status():
         # ── 1. Safety Override: Wellness Crítico ────────────────────────────────
@@ -392,7 +420,7 @@ def classify_exgauss_status(tau_zscore: float | None, wellness_zscore: float | N
                     f"🔴 FATIGA CENTRAL CONFIRMADA: La cola atencional (τ) se ha desplazado "
                     f"{tau_zscore:.1f}σ sobre la línea base individual, combinada con un estado "
                     f"de bienestar {abs(wellness_zscore):.1f}σ bajo el promedio. "
-                    f"El atleta está rindiendoforzadamente. Riesgo de lesión elevado."
+                    f"El atleta está rindiendo forzadamente. Riesgo de lesión elevado."
                 )
             }
 
@@ -430,10 +458,43 @@ def classify_exgauss_status(tau_zscore: float | None, wellness_zscore: float | N
         }
 
     status_dict = _get_raw_status()
+    status_color = status_dict.get("readiness_status", "GREEN")
+    lapse_override_applied = False
+    lapse_override_reason = None
+
+    # ── HARD-RULE DE LAPSES (Patch v2.2) ───────────────────────────────────────
+    # Prioridad absoluta: Elimina falsos negativos diagnósticos cuando hay bloqueos atencionales
+    if lapses_count >= 2:
+        if status_color in ["GREEN", "YELLOW"]:
+            status_color = "ORANGE"
+            lapse_override_applied = True
+            lapse_override_reason = "CRITICAL_LAPSES_DETECTED"
+            status_dict["fatigue_label"] = "Fatiga en Proceso (Lapses ≥ 2)"
+            status_dict["exg_alert"] = (
+                f"🟠 ALERTA CRÍTICA DE LAPSES: Registrados {lapses_count} bloqueos atencionales (lapses ≥ 250ms). "
+                f"Estado elevado automáticamente a ORANGE por seguridad neurobiológica."
+            )
+    elif lapses_count == 1:
+        if status_color == "GREEN":
+            status_color = "YELLOW"
+            lapse_override_applied = True
+            lapse_override_reason = "SINGLE_LAPSE_OVERRIDE"
+            status_dict["fatigue_label"] = "Fatiga Incipiente (Lapse = 1)"
+            status_dict["exg_alert"] = (
+                f"🟡 ALERTA PREVENTIVA DE LAPSE: Registrado 1 bloqueo atencional (lapse ≥ 250ms). "
+                f"Estado elevado automáticamente de GREEN a YELLOW por presencia de fallo atencional."
+            )
+
+    status_dict["readiness_status"] = status_color
+    status_dict["lapse_override_applied"] = lapse_override_applied
+    status_dict["lapse_override_reason"] = lapse_override_reason
+
     rs = status_dict.get("readiness_status")
     if rs in PIFC_PROTOCOLS:
         status_dict["pifc_protocol"] = PIFC_PROTOCOLS[rs]
-        
+    else:
+        status_dict.pop("pifc_protocol", None)
+
     return status_dict
 
 
@@ -503,14 +564,26 @@ def get_today_measurements(db, today_str: str) -> list[dict]:
 def process_athlete(db, measurement: dict, today_str: str) -> None:
     """
     Procesa un atleta completo: Ex-Gaussiano → Z-scores → Semáforo → Write-back.
+    PROTOCOLO HÍBRIDO v2.1: Rolling baseline por N registros válidos.
     """
     athlete_id   = measurement["athlete_id"]
     athlete_name = measurement["athlete_name"]
     trials       = measurement["trials"]
     wellness_raw = measurement["wellness"]
 
+    # ── Leer baseline_context del documento del atleta ──
+    # Este campo es seteado por el psicólogo al dar de alta al deportista.
+    # No altera el cálculo matemático — se almacena como metadato de trazabilidad.
+    baseline_context = "UNKNOWN"
+    try:
+        ath_snap = db.collection("athletes").document(athlete_id).get()
+        if ath_snap.exists:
+            baseline_context = ath_snap.to_dict().get("baseline_context", "UNKNOWN")
+    except Exception:
+        pass  # No bloquear el análisis si falla la lectura del campo
+
     log.info(f"\n{'─'*60}")
-    log.info(f"Procesando: {athlete_name} ({athlete_id})")
+    log.info(f"Procesando: {athlete_name} ({athlete_id}) | baseline_context: {baseline_context}")
 
     # ── 1. Ajuste Ex-Gaussiano ──
     exg = fit_exgaussian(trials)
@@ -553,11 +626,25 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
     tau_today = exg["tau_ms"] if exg else None
     zscores = compute_zscores(db, athlete_id, today_str, tau_today, wellness_score)
 
-    # ── 4. Clasificación Semáforo ──
+    # ── 4. Extraer Lapses y Clasificar Semáforo (Patch v2.2) ──
+    lapses_count = measurement.get("lapses")
+    if lapses_count is None:
+        pvt_m = measurement.get("pvt") or {}
+        if isinstance(pvt_m, dict):
+            metrics_m = pvt_m.get("metrics") or {}
+            lapses_count = metrics_m.get("lapses") if isinstance(metrics_m, dict) else None
+            if lapses_count is None:
+                lapses_count = pvt_m.get("lapses")
+    if lapses_count is None:
+        lapses_count = len([t for t in trials if t >= 500.0]) if trials else 0
+    else:
+        lapses_count = int(lapses_count)
+
     status = classify_exgauss_status(
         tau_zscore=zscores.get("tau_zscore"),
         wellness_zscore=zscores.get("wellness_zscore"),
-        tau_ms=tau_today
+        tau_ms=tau_today,
+        lapses_count=lapses_count
     )
 
     # ── 5. Construir payload advanced_analysis ──
@@ -579,30 +666,58 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
         "fit_quality": exg["fit_quality"] if exg else None,
         "ks_pval":     exg["ks_pval"]     if exg else None,
 
-        # Z-Scores (ventana 21 días)
+        # Z-Scores (Protocolo Híbrido — N registros válidos)
         "tau_zscore":           zscores.get("tau_zscore"),
         "wellness_zscore":      zscores.get("wellness_zscore"),
         "tau_baseline_n":       zscores.get("tau_baseline_n"),
         "tau_baseline_mean_ms": zscores.get("tau_baseline_mean"),
         "tau_baseline_sd_ms":   zscores.get("tau_baseline_sd"),
         "tau_baseline_status":  zscores.get("tau_baseline_status"),
+        # Trazabilidad del Protocolo Híbrido
+        "rolling_baseline_mode":         zscores.get("rolling_baseline_mode"),
+        "rolling_baseline_n_requested":  zscores.get("rolling_baseline_n_requested"),
+        "rolling_baseline_n_actual":     zscores.get("tau_baseline_n"),
+        "rolling_baseline_min_required": zscores.get("rolling_baseline_min_required"),
+        "baseline_context":              baseline_context,
 
-        # Resultado del semáforo
-        "readiness_status": status["readiness_status"],
-        "exg_alert":        status["exg_alert"],
+        # Resultado del semáforo y Trazabilidad de Lapses (Patch v2.2)
+        "readiness_status":       status["readiness_status"],
+        "fatigue_label":          status.get("fatigue_label"),
+        "exg_alert":              status["exg_alert"],
+        "lapse_override_applied": status.get("lapse_override_applied", False),
+        "lapse_override_reason":  status.get("lapse_override_reason", None),
 
         # Metadatos de trazabilidad (M-04)
-        "wellness_source":  wellness_source,   # Indica si el IRI incluyó todos los campos de Wellness
+        "wellness_source":  wellness_source,
         "wellness_score":   round(wellness_score, 2) if wellness_score is not None else None,
         "processed_at":     firestore.SERVER_TIMESTAMP,
-        "version":          "exgauss-2.0",     # v2.0: formula unificada + goodness-of-fit
+        "version":          "exgauss-3.2",     # v3.2: Patch v2.2 — Lapse Hard-Override Rule
         "pvt_protocol":     "PVT-B-30"
     }
 
     # ── 6. Write-back a Firestore ──
     doc_id = f"{athlete_id}_{today_str}"
+    
+    tenant_id = measurement.get("tenant_id") or measurement.get("tenantId")
+    if not tenant_id:
+        try:
+            ath_snap = db.collection("athletes").document(athlete_id).get()
+            if ath_snap.exists:
+                tenant_id = ath_snap.to_dict().get("tenantId")
+        except Exception:
+            pass
+
+    write_payload = {
+        "advanced_analysis": advanced_analysis,
+        "athleteId": athlete_id,
+        "athleteName": athlete_name,
+        "date": today_str,
+    }
+    if tenant_id:
+        write_payload["tenantId"] = tenant_id
+
     db.collection("Daily_Performance").document(doc_id).set(
-        {"advanced_analysis": advanced_analysis},
+        write_payload,
         merge=True
     )
 

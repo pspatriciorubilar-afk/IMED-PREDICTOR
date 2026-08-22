@@ -377,7 +377,12 @@ def _execute_exgauss_analysis(db, athlete_id: str, athlete_name: str, date_str: 
     FIX: Si m_data no contiene trials (race condition del trigger Firestore),
     se realiza un fallback leyendo la medición directamente desde Firestore.
     Esto garantiza que el análisis siempre se ejecute cuando hay ≥20 trials.
+
+    RETRY FLAG: Si el análisis falla por cualquier motivo (timeout, error, etc.),
+    se escribe needs_exgauss_retry=True en Daily_Performance para detectar y
+    recuperar el dato faltante via reprocess_missing_exgauss.py.
     """
+    doc_id = f"{athlete_id}_{date_str}"
     try:
         import pvt_exgauss_worker
         pvt_data = m_data.get("pvt", {})
@@ -432,43 +437,92 @@ def _execute_exgauss_analysis(db, athlete_id: str, athlete_name: str, date_str: 
             print(f"[EX-GAUSS] Trials no son numéricos para {athlete_name} ({date_str}). Saltando análisis.")
             return
 
+        tenant_id = m_data.get("tenantId") or m_data.get("tenant_id")
+        if not tenant_id:
+            try:
+                ath_snap = db.collection("athletes").document(athlete_id).get()
+                if ath_snap.exists:
+                    tenant_id = ath_snap.to_dict().get("tenantId")
+            except Exception:
+                pass
+
         measurement_payload = {
             "athlete_id": athlete_id,
             "athlete_name": athlete_name,
+            "tenant_id": tenant_id,
             "date": date_str,
             "trials": valid_trials,
             "wellness": m_data.get("wellness"),
             "iri": m_data.get("iri")
         }
         pvt_exgauss_worker.process_athlete(db, measurement_payload, date_str)
+        # ── Limpiar flag de retry si el análisis tuvo éxito ──
+        db.collection("Daily_Performance").document(doc_id).set(
+            {"needs_exgauss_retry": False}, merge=True
+        )
         print(f"[EX-GAUSS] ✅ Análisis completado para {athlete_name} ({date_str}).")
     except Exception as ex_err:
         import traceback
         print(f"[ERROR EX-GAUSS] Worker falló en {athlete_name} ({date_str}): {str(ex_err)}")
         traceback.print_exc()
+        # ── Marcar en Daily_Performance que se necesita un retry del ExGaussiano ──
+        # Esto permite detectar y reparar el dato faltante via reprocess_missing_exgauss.py
+        try:
+            db.collection("Daily_Performance").document(doc_id).set(
+                {"needs_exgauss_retry": True}, merge=True
+            )
+            print(f"[EX-GAUSS] ⚠ Marcado needs_exgauss_retry=True en {doc_id}")
+        except Exception:
+            pass  # Si esto también falla, no propagar
 
 @firestore_fn.on_document_created(document="athletes/{athlete_id}/measurements/{measurement_id}")
 def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """
-    Sincronizador Automático IMED v3.0
+    Sincronizador Automático IMED v3.1 — Fix Unicode NFC (ñ, á, é, etc.)
     Asegura que cada test llegue al Dashboard Daily_Performance al instante.
+
+    FIX CRÍTICO: Firestore puede entregar el {athlete_id} del path con el carácter
+    especial ñ codificado en Latin-1 (daÃ±obeytia) en lugar de UTF-8 (dañobeytia).
+    Se aplica normalización NFC y resolución canónica del ID desde la colección athletes.
     """
     if event.data is None:
         return
 
     try:
         import urllib.parse
-        athlete_id = urllib.parse.unquote(event.params["athlete_id"])
+        import unicodedata
+        raw_id = urllib.parse.unquote(event.params["athlete_id"])
+        # Normalizar a NFC para consolidar caracteres Unicode compuestos (ñ, á, é, etc.)
+        athlete_id_nfc = unicodedata.normalize("NFC", raw_id)
         m_data = event.data.to_dict()
         date_str = m_data.get("date")
-        
+
         if not date_str:
             return
 
         db = firestore.client()
-        
-        # Obtener nombre y tenantId del atleta para el panel
-        athlete_snap = db.collection("athletes").document(athlete_id).get()
+
+        # ── RESOLUCIÓN CANÓNICA DEL athlete_id ──────────────────────────────────
+        # Intentar con el ID tal como llegó (NFC). Si el documento athletes/ no existe,
+        # puede ser que el path llegó con encoding corrupto (Latin-1 mojibake).
+        # En ese caso, usar el path interno del evento como referencia directa.
+        athlete_snap = db.collection("athletes").document(athlete_id_nfc).get()
+        if not athlete_snap.exists:
+            # Fallback: intentar obtener el ID canónico desde la referencia del evento
+            try:
+                parent_path = event.data.reference.parent.parent.id
+                # parent_path es el ID del documento athlete tal como Firestore lo registró
+                canonical_id = unicodedata.normalize("NFC", urllib.parse.unquote(parent_path))
+                fallback_snap = db.collection("athletes").document(canonical_id).get()
+                if fallback_snap.exists:
+                    athlete_id_nfc = canonical_id
+                    athlete_snap = fallback_snap
+                    print(f"[AUTO-SYNC] Resolución canónica: '{raw_id}' → '{athlete_id_nfc}'")
+            except Exception as resolve_err:
+                print(f"[AUTO-SYNC] No se pudo resolver ID canónico: {resolve_err}")
+        athlete_id = athlete_id_nfc
+        # ────────────────────────────────────────────────────────────────────────
+
         athlete_name = athlete_id
         tenant_id = None
         if athlete_snap.exists:
@@ -488,6 +542,7 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
             "athleteId": athlete_id,
             "athleteName": athlete_name,
             "date": date_str,
+            "tenantId": tenant_id,
             "iri": m_data.get("iri"),
             "status": m_data.get("status"),
             "lapses": pvt.get("metrics", {}).get("lapses", 0),
@@ -495,14 +550,12 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
             "wellness": m_data.get("wellness"),
             "pvt": m_data.get("pvt"),
             "timestamp": firestore.SERVER_TIMESTAMP,
-            "sync_method": "auto_trigger_v411"
+            "sync_method": "auto_trigger_v412_unicode_fix"
         }
-        if tenant_id:
-            payload["tenantId"] = tenant_id
-        
+
         # Guardar en Daily_Performance (merge=True para no borrar datos GPS si ya existen)
         db.collection("Daily_Performance").document(doc_id).set(payload, merge=True)
-        print(f"[AUTO-SYNC] ✅ Daily_Performance actualizado para {athlete_name} ({date_str})")
+        print(f"[AUTO-SYNC] ✅ Daily_Performance actualizado para {athlete_name} ({date_str}) | tenantId={tenant_id}")
 
         # ── PASO 2: DISPARADOR EX-GAUSSIANO (best-effort, no bloquea el sync) ──
         # NOTA: Se pasa m_data con la data del evento. Si el evento no tiene trials
@@ -510,7 +563,9 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         _execute_exgauss_analysis(db, athlete_id, athlete_name, date_str, m_data)
 
     except Exception as e:
+        import traceback
         print(f"[ERROR AUTO-SYNC] {str(e)}")
+        traceback.print_exc()
 
 @https_fn.on_call()
 def force_sync_athlete(req: https_fn.CallableRequest) -> dict:
@@ -1236,6 +1291,109 @@ def check_expired_subscriptions(event: scheduler_fn.ScheduledEvent) -> None:
 
     except Exception as e:
         print(f"[SUBSCRIPTION-CRON-FATAL] Error leyendo subscriptions: {e}")
+
+
+@scheduler_fn.on_schedule(schedule="every 24 hours")
+def daily_exgauss_reprocess_job(event: scheduler_fn.ScheduledEvent) -> None:
+    """
+    Cron diario: procesa y asegura el cálculo Ex-Gaussiano para todos los atletas.
+
+    Flujo:
+    1. Escanea todos los atletas en 'athletes' y mapea sus 'tenantId'.
+    2. Escanea la colección 'Daily_Performance' buscando registros sin 'advanced_analysis',
+       con 'needs_exgauss_retry' == True, o con 'tenantId' nulo.
+    3. Si falta 'tenantId', lo asigna automáticamente desde el documento del atleta.
+    4. Ejecuta el worker Ex-Gaussiano ('pvt_exgauss_worker.process_athlete') sobre las mediciones
+       correspondientes para garantizar que mu, sigma, tau, Z-scores y semáforo PIFC estén siempre
+       actualizados en la web.
+    """
+    db = firestore.client()
+    today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    print(f"[EXGAUSS-CRON] Iniciando barrido diario Ex-Gaussiano. Fecha: {today_str}")
+
+    processed_count = 0
+    fixed_tenant_count = 0
+
+    try:
+        import pvt_exgauss_worker
+
+        # 1. Mapa de atletas y tenantId
+        athletes_snap = db.collection("athletes").stream()
+        athlete_map = {}
+        for ath_doc in athletes_snap:
+            ad = ath_doc.to_dict()
+            athlete_map[ath_doc.id] = {
+                "name": f"{ad.get('firstName', '')} {ad.get('lastName', '')}".strip() or ath_doc.id,
+                "tenantId": ad.get("tenantId") or ad.get("tenant_id") or "demo_tenant"
+            }
+
+        # 2. Escanear Daily_Performance
+        dp_docs = db.collection("Daily_Performance").stream()
+        for dp in dp_docs:
+            d = dp.to_dict()
+            dp_id = dp.id
+            aid = d.get("athleteId") or ""
+            date_str = d.get("date") or ""
+
+            if not aid:
+                continue
+
+            ath_info = athlete_map.get(aid, {"name": aid, "tenantId": "demo_tenant"})
+            tenant_id = d.get("tenantId") or ath_info["tenantId"]
+
+            # Reparar tenantId si falta
+            if not d.get("tenantId") and tenant_id:
+                db.collection("Daily_Performance").document(dp_id).set({"tenantId": tenant_id}, merge=True)
+                fixed_tenant_count += 1
+
+            # Verificar si requiere procesar Ex-Gaussiano
+            aa = d.get("advanced_analysis")
+            needs_retry = d.get("needs_exgauss_retry", False)
+
+            if not aa or needs_retry or not isinstance(aa, dict) or not aa.get("tau_ms"):
+                # Buscar mediciones del atleta para esa fecha
+                m_docs = db.collection("athletes").document(aid).collection("measurements") \
+                    .where("date", "==", date_str).order_by("timestamp", direction=firestore.Query.DESCENDING).limit(1).stream()
+
+                for m_doc in m_docs:
+                    m_data = m_doc.to_dict()
+                    pvt = m_data.get("pvt", {})
+                    metrics = pvt.get("metrics", {})
+                    trials = (
+                        metrics.get("trials") or
+                        metrics.get("rawReactionTimes") or
+                        pvt.get("trials") or
+                        pvt.get("logs") or
+                        m_data.get("trials") or
+                        []
+                    )
+                    valid_trials = [float(t) for t in trials if isinstance(t, (int, float))]
+                    if len(valid_trials) >= 20:
+                        payload = {
+                            "athlete_id": aid,
+                            "athlete_name": ath_info["name"],
+                            "tenant_id": tenant_id,
+                            "date": date_str,
+                            "trials": valid_trials,
+                            "wellness": m_data.get("wellness"),
+                            "iri": m_data.get("iri")
+                        }
+                        try:
+                            pvt_exgauss_worker.process_athlete(db, payload, date_str)
+                            db.collection("Daily_Performance").document(dp_id).set({
+                                "tenantId": tenant_id,
+                                "needs_exgauss_retry": False
+                            }, merge=True)
+                            processed_count += 1
+                            print(f"[EXGAUSS-CRON] ✅ Procesado {ath_info['name']} ({date_str})")
+                        except Exception as ex_err:
+                            print(f"[EXGAUSS-CRON] ❌ Error procesando {aid} ({date_str}): {ex_err}")
+
+        print(f"[EXGAUSS-CRON] Finalizado: {processed_count} registros procesados | {fixed_tenant_count} tenantId reparados.")
+    except Exception as err:
+        print(f"[EXGAUSS-CRON ERROR] Fallo en ejecución: {err}")
+
+
 
 
 @https_fn.on_call()
