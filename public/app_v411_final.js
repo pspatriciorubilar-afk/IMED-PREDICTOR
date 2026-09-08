@@ -55,11 +55,30 @@ try {
                 window.currentUserTeam = idTokenResult.claims.team || null;
                 
                 // Forzar roles oficiales por correo
-                if (user.email === 'demo@imedpredictor.com') window.currentUserRole = 'DEMO';
-                if (user.email === 'ps.patriciorubilar@gmail.com') window.currentUserRole = 'SUPER_ADMIN';
+                if (user.email === 'demo@imedpredictor.com') {
+                    window.currentUserRole = 'DEMO';
+                    window.currentUserTeam = null;
+                }
+                if (user.email === 'ps.patriciorubilar@gmail.com') {
+                    window.currentUserRole = 'SUPER_ADMIN';
+                    window.currentUserTeam = null;
+                    window.currentUserTenantId = null;
+
+                    // Si el token aún no tiene el claim de SUPER_ADMIN en Auth, asegurarlo
+                    if (idTokenResult.claims.role !== 'SUPER_ADMIN') {
+                        try {
+                            const ensureFn = firebase.functions().httpsCallable('ensure_superadmin_claims');
+                            await ensureFn();
+                            await user.getIdToken(true);
+                        } catch (e) {
+                            console.warn('[SUPER_ADMIN] Claims sync:', e);
+                        }
+                    }
+                }
                 
-                // Resolver el tenantId del usuario
+                // Resolver el tenantId y datos del tenant del usuario
                 let tenantId = idTokenResult.claims.tenantId || null;
+                let tenantName = null;
                 if (!tenantId) {
                     if (window.currentUserRole === 'DEMO') {
                         tenantId = 'demo_tenant';
@@ -67,10 +86,23 @@ try {
                         const tenantSnap = await db.collection('tenants').where('admin_email', '==', user.email).get();
                         if (!tenantSnap.empty) {
                             tenantId = tenantSnap.docs[0].id;
+                            tenantName = tenantSnap.docs[0].data().name || null;
                         }
                     }
+                } else if (window.currentUserRole !== 'DEMO' && window.currentUserRole !== 'SUPER_ADMIN') {
+                    try {
+                        const tSnap = await db.collection('tenants').doc(tenantId).get();
+                        if (tSnap.exists) {
+                            tenantName = tSnap.data().name || null;
+                        }
+                    } catch (_) {}
                 }
-                window.currentUserTenantId = tenantId;
+                if (window.currentUserRole !== 'SUPER_ADMIN') {
+                    window.currentUserTenantId = tenantId;
+                    window.currentUserTenantName = tenantName;
+                }
+
+                if (window.updateUserHeaderInfo) window.updateUserHeaderInfo();
                 
                 applyRolePermissions();
             } catch (err) {
@@ -171,15 +203,26 @@ async function init() {
 // ─── Onboarding & Real-time ───
 function startAthletesOnboarding() {
     let query = db.collection('athletes');
-    if (window.currentUserRole !== 'SUPER_ADMIN' && window.currentUserTenantId) {
+    if (window.currentUserRole === 'SUPER_ADMIN') {
+        // Super Admin ve todos los atletas de la base de datos sin restricción
+    } else if (window.currentUserTenantId) {
         query = query.where('tenantId', '==', window.currentUserTenantId);
-    } else if (window.currentUserTeam && window.currentUserRole !== 'ADMIN') {
+    } else if (window.currentUserTeam) {
         query = query.where('team', '==', window.currentUserTeam);
     }
     query.onSnapshot(snap => {
         gAthletesCache = snap.docs.map(d => {
             const data = d.data();
             return { id: d.id, ...data, fullName: data.fullName || `${data.firstName || ''} ${data.lastName || ''}`.trim() || d.id };
+        }).filter(a => {
+            const aid = String(a.id || '');
+            const afn = String(a.fullName || '');
+            if (aid.includes('Ã') || afn.includes('Ã')) {
+                db.collection('athletes').doc(aid).delete().catch(() => {});
+                return false;
+            }
+            if (aid.startsWith('athlete_pending_')) return false;
+            return true;
         });
         applyTeamFilterToPerformance();
         renderAthletesTable();
@@ -219,7 +262,14 @@ function startRealtimeListener() {
                 .map(d => ({ id: d.id, ...d.data() }))
                 .filter(p => {
                     const aid = String(p.athleteId || '');
-                    return aid.length > 0 && !aid.startsWith('athlete_pending_');
+                    const aname = String(p.athleteName || '');
+                    if (aid.length === 0 || aid.startsWith('athlete_pending_')) return false;
+                    // Descartar y limpiar registros corruptos por mojibake/encoding (ej. martÃnez)
+                    if (aid.includes('Ã') || aname.includes('Ã') || (p.id && p.id.includes('Ã'))) {
+                        if (p.id) db.collection('Daily_Performance').doc(p.id).delete().catch(() => {});
+                        return false;
+                    }
+                    return true;
                 });
             
             if (isTenantFiltered) {
@@ -243,7 +293,7 @@ function startRealtimeListener() {
 }
 
 function applyTeamFilterToPerformance() {
-    if (window.currentUserTeam && window.currentUserRole !== 'ADMIN') {
+    if (window.currentUserRole !== 'SUPER_ADMIN' && window.currentUserRole !== 'ADMIN' && window.currentUserTeam) {
         const allowedIds = new Set(gAthletesCache.map(a => String(a.id)));
         allPerformance = allPerformanceRaw.filter(p => allowedIds.has(String(p.athleteId)));
     } else {
@@ -399,21 +449,42 @@ function renderDashboard() {
     const container = document.getElementById('athlete-list');
     if (!container) return;
     // Usar fecha local para evitar desfases UTC
-    const today = new Date().toLocaleDateString('en-CA'); 
+    const today = new Date().toLocaleDateString('en-CA');
     const latest = {};
     
-    let todayEvalsCount = 0;
     allPerformance.forEach(p => { 
-        if (p.date === today) todayEvalsCount++;
         const aid = String(p.athleteId || "").trim();
+        const aname = String(p.athleteName || "").trim();
         if (!aid) return;
-        // Conservar el registro con la fecha MÁS RECIENTE por atleta
-        if (!latest[aid] || (p.date || '') > (latest[aid].date || '')) {
-            latest[aid] = p;
+        if (aid.includes('Ã') || aname.includes('Ã') || (p.id && p.id.includes('Ã'))) return;
+
+        // Clave canónica única para agrupar variaciones del mismo deportista
+        // (ej: patricio_rubilar_martinez_45 y Patricio Rubilar Martínez mapean al mismo atleta)
+        const canonicalKey = (aname && !aname.includes('_') ? aname : aid)
+            .toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+            .replace(/[0-9_]/g, "")
+            .trim();
+
+        if (!latest[canonicalKey]) {
+            latest[canonicalKey] = p;
+        } else {
+            const existing = latest[canonicalKey];
+            if ((p.date || '') > (existing.date || '')) {
+                latest[canonicalKey] = p;
+            } else if ((p.date || '') === (existing.date || '')) {
+                // A igualdad de fecha, preferir el registro con nombre formal humano
+                const pHasHuman = p.athleteName && !p.athleteName.includes('_');
+                const exHasHuman = existing.athleteName && !existing.athleteName.includes('_');
+                if (pHasHuman && !exHasHuman) {
+                    latest[canonicalKey] = p;
+                }
+            }
         }
     });
     
     const latestList = Object.values(latest);
+    const todayEvalsCount = latestList.filter(p => p.date === today).length;
     let counts = { RED: 0, YELLOW: 0, GREEN: 0 };
 
     // Triage Filter
@@ -1172,18 +1243,46 @@ async function exportAthletePDF(id) {
 }
 
 async function deleteAthlete(id) {
-    if (!confirm('¿Estás seguro de que deseas eliminar este deportista y todos sus registros? Esta acción no se puede deshacer.')) return;
+    if (!id) return;
+    if (!confirm('¿Estás seguro de que deseas eliminar este deportista y todo su historial? Esta acción no se puede deshacer.')) return;
     
+    showToast('info', 'Eliminando...', 'Eliminando deportista y registros permanentemente...');
+    
+    // 1. Intentar primero vía Cloud Function (elimina deportista, measurements y Daily_Performance con Admin SDK)
+    try {
+        const deleteFn = firebase.functions().httpsCallable('delete_athlete_permanent');
+        const res = await deleteFn({ athleteId: id });
+        if (res.data && res.data.status === 'success') {
+            // Limpieza inmediata en memoria y UI
+            gAthletesCache = gAthletesCache.filter(x => String(x.id) !== String(id));
+            allPerformance = allPerformance.filter(x => String(x.athleteId) !== String(id));
+            allPerformanceRaw = allPerformanceRaw.filter(x => String(x.athleteId) !== String(id));
+            renderDashboard();
+            renderSncTable();
+            renderAthletesTable();
+            showToast('success', 'Deportista Eliminado', res.data.message);
+            return;
+        }
+    } catch (fnErr) {
+        console.warn('[DELETE] Cloud Function falló o no disponible, ejecutando eliminación directa en Firestore:', fnErr);
+    }
+
+    // 2. Fallback: Eliminación directa en Firestore usando las nuevas reglas de seguridad
     try {
         const batch = db.batch();
         // 1. Eliminar perfil del atleta
         batch.delete(db.collection('athletes').doc(id));
         
-        // 2. Eliminar registros de Daily_Performance asociados (nombre correcto de colección)
+        // 2. Eliminar mediciones si existen
+        try {
+            const mSnap = await db.collection('athletes').doc(id).collection('measurements').get();
+            mSnap.forEach(doc => batch.delete(doc.ref));
+        } catch (_) {}
+
+        // 3. Eliminar registros de Daily_Performance asociados
         const snapshot = await db.collection('Daily_Performance').where('athleteId', '==', id).get();
         snapshot.docs.forEach(doc => batch.delete(doc.ref));
         
-        // 3. Eliminar también por si el ID fue guardado como número
         const idNum = parseInt(id);
         if (!isNaN(idNum)) {
             const snap2 = await db.collection('Daily_Performance').where('athleteId', '==', idNum).get();
@@ -1191,10 +1290,18 @@ async function deleteAthlete(id) {
         }
 
         await batch.commit();
-        alert('Deportista eliminado correctamente.');
+
+        gAthletesCache = gAthletesCache.filter(x => String(x.id) !== String(id));
+        allPerformance = allPerformance.filter(x => String(x.athleteId) !== String(id));
+        allPerformanceRaw = allPerformanceRaw.filter(x => String(x.athleteId) !== String(id));
+        renderDashboard();
+        renderSncTable();
+        renderAthletesTable();
+
+        showToast('success', 'Deportista Eliminado', 'Deportista y registros eliminados permanentemente.');
     } catch (e) {
         console.error("Error al eliminar deportista:", e);
-        alert('Error al intentar eliminar el deportista.');
+        showToast('error', 'Error al Eliminar', 'No se pudo eliminar el deportista: ' + (e.message || e));
     }
 }
 
@@ -2265,32 +2372,6 @@ function filterAthletesSNC() {
     renderSncTable();
 }
 
-async function deleteAthlete(id) { 
-    if (!confirm("¿Eliminar deportista y todo su historial de evaluaciones? Esta acción no se puede deshacer.")) return; 
-    
-    try {
-        const batch = db.batch();
-        // Eliminar perfil
-        batch.delete(db.collection('athletes').doc(id));
-        
-        // Eliminar historial vinculado (buscando por string y por número para seguridad)
-        const q1 = await db.collection('Daily_Performance').where('athleteId', '==', id).get();
-        q1.forEach(doc => batch.delete(doc.ref));
-        
-        const idNum = parseInt(id);
-        if (!isNaN(idNum)) {
-            const q2 = await db.collection('Daily_Performance').where('athleteId', '==', idNum).get();
-            q2.forEach(doc => batch.delete(doc.ref));
-        }
-
-        await batch.commit();
-        console.log("Atleta y registros eliminados con éxito.");
-    } catch (err) {
-        console.error("Error en eliminación completa:", err);
-        // Fallback: eliminar solo el perfil si el historial falla
-        db.collection('athletes').doc(id).delete();
-    }
-}
 
 async function saveSettings() {
     const valIri = document.getElementById('threshold-iri').value;
@@ -2692,188 +2773,8 @@ async function submitAssignTeam() {
     }
 }
 
-// ─── SaaS Multi-Tenant & Subscription Control [NUEVO] ───
-let gSaasTenantsCache = [];
 
-window.loadSaasTenants = async function() {
-    const tbody = document.getElementById('saas-tenants-body');
-    if (!tbody) return;
 
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px"><span class="login-btn-spinner"></span> Cargando base de datos de inquilinos...</td></tr>`;
-
-    try {
-        const snap = await db.collection('tenants').orderBy('created_at', 'desc').get();
-        gSaasTenantsCache = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-        // Si la coleccion está vacia, inyectar inquilinos de prueba (Seed Data) para la postulación
-        if (gSaasTenantsCache.length === 0) {
-            await seedMockTenants();
-            return;
-        }
-
-        renderTenantsTable();
-    } catch (e) {
-        console.error("Error al cargar tenants:", e);
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--red); padding:20px">Error de permisos o conexión al cargar base SaaS. Asegúrate de ser SUPER_ADMIN.</td></tr>`;
-    }
-};
-
-async function seedMockTenants() {
-    const mockData = [
-        {
-            id: 'colocolo',
-            name: 'Club de Deportes Colo-Colo',
-            plan: 'PRO',
-            expiration: '2026-12-31',
-            status: 'ACTIVE',
-            admin_email: 'preparador.fisico@colocolo.cl',
-            associationCode: 'COLO26',
-            created_at: new Date()
-        },
-        {
-            id: 'uchile',
-            name: 'Club Universidad de Chile',
-            plan: 'BASIC',
-            expiration: '2026-08-15',
-            status: 'ACTIVE',
-            admin_email: 'kinesiologia@udechile.cl',
-            associationCode: 'UCHI26',
-            created_at: new Date(Date.now() - 86400000)
-        },
-        {
-            id: 'clinicamedica',
-            name: 'Centro de Medicina Deportiva Meds',
-            plan: 'ENTERPRISE',
-            expiration: '2027-06-30',
-            status: 'ACTIVE',
-            admin_email: 'contacto@meds.cl',
-            associationCode: 'MEDS26',
-            created_at: new Date(Date.now() - 86400000 * 2)
-        },
-        {
-            id: 'valencia_fc',
-            name: 'Valencia Football Club Academias',
-            plan: 'TRIAL',
-            expiration: '2026-07-10',
-            status: 'EXPIRED',
-            admin_email: 'academias@valencia.es',
-            associationCode: 'VALE26',
-            created_at: new Date(Date.now() - 86400000 * 20)
-        }
-    ];
-
-    for (const tenant of mockData) {
-        await db.collection('tenants').doc(tenant.id).set(tenant);
-    }
-    await loadSaasTenants();
-}
-
-function renderTenantsTable() {
-    const tbody = document.getElementById('saas-tenants-body');
-    if (!tbody) return;
-
-    if (gSaasTenantsCache.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px">No hay inquilinos registrados.</td></tr>`;
-        return;
-    }
-
-    tbody.innerHTML = gSaasTenantsCache.map(t => {
-        const badgeColor = t.status === 'ACTIVE' ? 'badge-green' : t.status === 'EXPIRED' ? 'badge-yellow' : 'badge-red';
-        const actionBtn = t.status === 'ACTIVE' 
-            ? `<button class="btn-mini" style="background:rgba(255,77,77,0.1); border:1px solid rgba(255,77,77,0.2); color:var(--red)" onclick="switchTenantStatus('${t.id}', 'SUSPENDED')">Suspender</button>`
-            : `<button class="btn-mini" style="background:rgba(50,215,75,0.1); border:1px solid rgba(50,215,75,0.2); color:var(--green)" onclick="switchTenantStatus('${t.id}', 'ACTIVE')">Reactivar</button>`;
-
-        return `
-            <tr>
-                <td style="font-weight:700" class="mono-cell">${t.id}</td>
-                <td>
-                    <div style="font-weight:600; color:#fff">${t.name}</div>
-                    <div style="font-size:11px; color:#636375">${t.admin_email}</div>
-                    <div style="font-size:11px; color:#00E5FF; font-weight:700; margin-top:2px">Código: <span class="mono-cell" style="background:rgba(0,229,255,0.1); padding:2px 6px; border-radius:4px">${t.associationCode || 'IMED-MOCKCODE'}</span></div>
-                </td>
-                <td><span class="badge blue-badge">${t.plan}</span></td>
-                <td>${t.expiration || 'Sin límite (Enterprise)'}</td>
-                <td><span class="badge ${badgeColor}">${t.status}</span></td>
-                <td style="display:flex; gap:6px">${actionBtn}</td>
-            </tr>
-        `;
-    }).join('');
-}
-
-window.switchTenantStatus = async function(tenantId, newStatus) {
-    try {
-        await db.collection('tenants').doc(tenantId).update({ status: newStatus });
-        showToast('success', 'Inquilino Actualizado', `El estado del tenant ${tenantId} ha cambiado a ${newStatus}.`);
-        await loadSaasTenants();
-    } catch (e) {
-        console.error(e);
-        showToast('error', 'Error SaaS', 'No tienes permisos de SuperAdmin para modificar inquilinos.');
-    }
-};
-
-window.openNewTenantModal = function() {
-    document.getElementById('saas-tenant-modal').classList.remove('hidden');
-};
-
-window.closeTenantModal = function() {
-    document.getElementById('saas-tenant-modal').classList.add('hidden');
-};
-
-window.saveNewTenant = async function(event) {
-    event.preventDefault();
-    const btn = event.submitter || event.target.querySelector('button[type="submit"]');
-    const origText = btn.innerHTML;
-
-    btn.disabled = true;
-    btn.textContent = 'Aprovisionando base de datos...';
-
-    const id = document.getElementById('tenant-id-input').value.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const name = document.getElementById('tenant-name-input').value.trim();
-    const plan = document.getElementById('tenant-plan-input').value;
-    const email = document.getElementById('tenant-email-input').value.trim();
-
-    const today = new Date();
-    let expiration = "";
-    if (plan === 'TRIAL') {
-        today.setDate(today.getDate() + 14);
-        expiration = today.toISOString().split('T')[0];
-    } else if (plan === 'BASIC' || plan === 'PRO') {
-        today.setDate(today.getDate() + 30);
-        expiration = today.toISOString().split('T')[0];
-    }
-
-    // Generar un código único legible de 6 caracteres alfanuméricos
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let codeStr = '';
-    for (let i = 0; i < 6; i++) {
-        codeStr += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    const associationCode = codeStr;
-
-    const newTenant = {
-        id,
-        name,
-        plan,
-        expiration,
-        status: 'ACTIVE',
-        admin_email: email,
-        associationCode,
-        created_at: new Date()
-    };
-
-    try {
-        await db.collection('tenants').doc(id).set(newTenant);
-        showToast('success', 'Tenant Aprovisionado', `Base de datos aislada para ${name} lista.`);
-        closeTenantModal();
-        await loadSaasTenants();
-    } catch (e) {
-        console.error(e);
-        showToast('error', 'Fallo Aprovisionamiento', 'Error de permisos al dar de alta el inquilino.');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = origText;
-    }
-};
 
 // ─── Simulación Pasarela Stripe & Cobros ───
 window.simulateCheckout = function(planName) {
@@ -2922,6 +2823,440 @@ window.cancelSubscription = function() {
                 showToast('error', 'Error al Cancelar', 'No se pudo cancelar el plan.');
             }
         }, 500);
+    }
+};
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SAAS CONTROL — Panel de Gestión de Clientes (Solo SUPER_ADMIN)
+// Permite crear, ver, renovar y bloquear tenants directamente desde el dashboard
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ─── Cargar tabla de todos los tenants desde Firestore ───
+window.loadSaasTenants = async function loadSaasTenants() {
+    const tbody = document.getElementById('saas-tenants-body');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#636375;padding:32px"><span class="login-btn-spinner"></span> Cargando clientes...</td></tr>';
+
+    try {
+        const snap = await db.collection('tenants').orderBy('created_at', 'desc').get();
+
+        if (snap.empty) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#636375;padding:32px">No hay clientes registrados aún.</td></tr>';
+            return;
+        }
+
+        const today = new Date().toISOString().split('T')[0];
+        let rows = '';
+
+        for (const doc of snap.docs) {
+            const t = doc.data();
+            const tid = doc.id;
+
+            // Determinar estado visual
+            const exp  = t.expiration || '';
+            const plan = (t.plan || 'TRIAL').toUpperCase();
+            const status = t.status || 'ACTIVE';
+
+            let stateBadge = '';
+            let isExpired = exp && exp < today;
+
+            if (status === 'SUSPENDED' || status === 'BLOCKED') {
+                stateBadge = '<span class="badge badge-red" style="font-size:10px">BLOQUEADO</span>';
+            } else if (isExpired) {
+                stateBadge = '<span class="badge badge-red" style="font-size:10px">EXPIRADO</span>';
+            } else if (status === 'ACTIVE') {
+                stateBadge = '<span class="badge badge-green" style="font-size:10px">ACTIVO</span>';
+            } else {
+                stateBadge = `<span class="badge badge-gray" style="font-size:10px">${status}</span>`;
+            }
+
+            const planColors = { TRIAL:'#A1A1AA', BASIC:'#00E5FF', PRO:'#BF5AF2', ENTERPRISE:'#FFD700' };
+            const planColor  = planColors[plan] || '#636375';
+            const planBadge  = `<span style="font-size:11px;font-weight:700;color:${planColor};background:${planColor}22;padding:2px 8px;border-radius:6px;border:1px solid ${planColor}44">${plan}</span>`;
+
+            const expDisplay = exp
+                ? `<span style="font-size:12px;color:${isExpired ? '#FF4D4D' : '#A1A1AA'}">${exp}</span>`
+                : '<span style="font-size:12px;color:#636375">Indefinido</span>';
+
+            const code = t.associationCode
+                ? `<span style="font-family:monospace;font-size:13px;font-weight:700;color:#00E5FF;background:rgba(0,229,255,0.08);padding:2px 8px;border-radius:6px;border:1px solid rgba(0,229,255,0.2)" title="Código para vincular app móvil">${t.associationCode}</span>`
+                : '—';
+
+            rows += `
+            <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+              <td>
+                <div style="font-size:13px;font-weight:700;color:#fff">${tid}</div>
+                <div style="font-size:11px;color:#636375;margin-top:2px">${t.admin_email || '—'}</div>
+                <div style="margin-top:4px">${code}</div>
+              </td>
+              <td>
+                <div style="font-size:13px;color:#fff">${t.name || '—'}</div>
+              </td>
+              <td>${planBadge}</td>
+              <td>${expDisplay}</td>
+              <td>${stateBadge}</td>
+              <td>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button class="btn-mini" onclick="saasRenewTenant('${tid}','${plan}')" title="Renovar suscripción">🔄 Renovar</button>
+                  <button class="btn-mini" style="border-color:rgba(255,215,0,0.3);color:#FFD700;background:rgba(255,215,0,0.05)" onclick="saasChangePassword('${tid}', '${t.admin_email || ''}')" title="Asignar o cambiar contraseña">🔑 Clave</button>
+                  ${(status === 'SUSPENDED' || status === 'BLOCKED' || isExpired)
+                    ? `<button class="btn-mini" style="border-color:rgba(50,215,75,0.3);color:#32D74B" onclick="saasToggleBlock('${tid}', false)">✅ Activar</button>`
+                    : `<button class="btn-mini" style="border-color:rgba(255,77,77,0.3);color:#FF4D4D" onclick="saasToggleBlock('${tid}', true)">🚫 Bloquear</button>`
+                  }
+                  <button class="btn-mini" style="border-color:rgba(255,77,77,0.4);color:#FF4D4D;background:rgba(255,77,77,0.05)" onclick="saasDeleteTenant('${tid}')" title="Eliminar cliente permanentemente">🗑 Eliminar</button>
+                </div>
+              </td>
+            </tr>`;
+        }
+
+        tbody.innerHTML = rows;
+
+    } catch (err) {
+        console.error('[SaaS] Error cargando tenants:', err);
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#FF4D4D;padding:32px">Error: ${err.message}</td></tr>`;
+    }
+}
+
+// ─── Abrir modal para crear nuevo cliente (igual que si comprara) ───
+window.openNewTenantModal = function() {
+    const modal = document.getElementById('saas-tenant-modal');
+    if (!modal) return;
+    // Limpiar campos
+    ['tenant-id-input','tenant-name-input','tenant-email-input','tenant-password-input'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const planSel = document.getElementById('tenant-plan-input');
+    if (planSel) planSel.value = 'TRIAL';
+
+    // Limpiar mensajes previos
+    const errEl = document.getElementById('saas-tenant-error');
+    const sucEl = document.getElementById('saas-tenant-success');
+    if (errEl) errEl.style.display = 'none';
+    if (sucEl) sucEl.style.display = 'none';
+
+    modal.classList.remove('hidden');
+};
+
+window.closeTenantModal = function() {
+    const modal = document.getElementById('saas-tenant-modal');
+    if (modal) modal.classList.add('hidden');
+};
+
+// ─── Crear nuevo cliente (invoca register_new_tenant, igual que el flujo de compra) ───
+window.saveNewTenant = async function(e) {
+    e.preventDefault();
+
+    const tenantId   = (document.getElementById('tenant-id-input').value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const name       = (document.getElementById('tenant-name-input').value || '').trim();
+    const plan       = (document.getElementById('tenant-plan-input').value || 'TRIAL');
+    const email      = (document.getElementById('tenant-email-input').value || '').trim();
+    const customPass = (document.getElementById('tenant-password-input')?.value || '').trim();
+
+    // Usar contraseña personalizada si se especificó, o generar contraseña temporal segura
+    const tempPass   = customPass || ('Imed' + Math.random().toString(36).slice(2, 8).toUpperCase() + '!');
+
+    const btn   = document.querySelector('#saas-tenant-form button[type="submit"]');
+    const errEl = document.getElementById('saas-tenant-error');
+    const sucEl = document.getElementById('saas-tenant-success');
+
+    if (errEl) errEl.style.display = 'none';
+    if (sucEl) sucEl.style.display = 'none';
+
+    if (!tenantId || !name || !email) {
+        if (errEl) { errEl.textContent = 'Todos los campos son obligatorios.'; errEl.style.display = 'block'; }
+        return;
+    }
+
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Aprovisionando...'; }
+
+    try {
+        // Reutiliza la misma Cloud Function que usa el formulario público de compra
+        const registerFn = firebase.functions().httpsCallable('register_new_tenant');
+        const res = await registerFn({ tenantId, name, email, password: tempPass, plan });
+
+        if (res.data.status === 'success') {
+            // Leer datos directamente desde la respuesta estructurada de la Cloud Function
+            const code       = res.data.associationCode || '—';
+            const expiration = res.data.expiration      || 'Sin fecha';
+            const planLabel  = res.data.plan            || plan;
+
+            // Texto plano para copiar al portapapeles
+            const credText = [
+                `=== Credenciales IMED Predictor ===`,
+                `Organización : ${name}`,
+                `Email        : ${email}`,
+                `Contraseña   : ${tempPass}`,
+                `Plan         : ${planLabel}`,
+                `Vigencia     : ${expiration}`,
+                `Código App   : ${code}`,
+                ``,
+                `⚠ El cliente debe cambiar la contraseña en su primer ingreso.`
+            ].join('\n');
+
+            if (sucEl) {
+                sucEl.innerHTML = `
+                    <div style="margin-bottom:10px;font-weight:700;font-size:14px">✅ Cliente aprovisionado correctamente</div>
+                    <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:14px;font-size:12px;line-height:2;border:1px solid rgba(255,255,255,0.06)">
+                        <div><span style="color:#636375">Organización:</span> <b style="color:#fff">${name}</b></div>
+                        <div><span style="color:#636375">Email:</span> <span style="font-family:monospace;color:#00E5FF">${email}</span></div>
+                        <div><span style="color:#636375">Contraseña temporal:</span> <span style="font-family:monospace;font-weight:700;color:#FFD700;background:rgba(255,215,0,0.08);padding:1px 6px;border-radius:4px">${tempPass}</span></div>
+                        <div><span style="color:#636375">Código app móvil:</span> <span style="font-family:monospace;font-weight:700;color:#00E5FF;background:rgba(0,229,255,0.08);padding:1px 6px;border-radius:4px">${code}</span></div>
+                        <div><span style="color:#636375">Plan:</span> <b style="color:#BF5AF2">${planLabel}</b> &nbsp;|&nbsp; <span style="color:#636375">Vigencia:</span> <b style="color:#fff">${expiration}</b></div>
+                    </div>
+                    <div style="margin-top:8px;font-size:11px;color:#636375">⚠ El cliente debe cambiar la contraseña en su primer inicio de sesión.</div>
+                    <div style="display:flex;gap:8px;margin-top:10px">
+                        <button onclick="navigator.clipboard.writeText(${JSON.stringify(credText)}).then(()=>{this.textContent='✅ ¡Copiado!';setTimeout(()=>this.textContent='📋 Copiar credenciales',2000)})" style="flex:1;padding:9px;border-radius:8px;border:1px solid rgba(0,229,255,0.3);background:rgba(0,229,255,0.08);color:#00E5FF;font-size:12px;font-weight:700;cursor:pointer">
+                            📋 Copiar credenciales
+                        </button>
+                        <button onclick="closeTenantModal();loadSaasTenants();" style="flex:1;padding:9px;border-radius:8px;border:1px solid rgba(50,215,75,0.3);background:rgba(50,215,75,0.08);color:#32D74B;font-size:12px;font-weight:700;cursor:pointer">
+                            ✔ Listo — Cerrar
+                        </button>
+                    </div>`;
+                sucEl.style.display = 'block';
+            }
+
+            // Re-habilitar botón; modal queda abierto para que el admin copie las credenciales
+            if (btn) { btn.disabled = false; btn.textContent = '🚀 Crear y Aprovisionar Cliente'; }
+
+            // Refrescar tabla en background
+            setTimeout(() => loadSaasTenants(), 500);
+
+        } else {
+            throw new Error(res.data.message || 'Error desconocido del servidor');
+        }
+
+    } catch (err) {
+        console.error('[SaaS] Error creando tenant:', err);
+        if (errEl) {
+            errEl.innerHTML = `<b>Error al aprovisionar:</b> ${err.message}`;
+            errEl.style.display = 'block';
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '🚀 Crear y Aprovisionar Cliente'; }
+    }
+};
+
+
+// ─── Renovar suscripción de un tenant (bloquea/desbloquea según estado) ───
+window.saasRenewTenant = async function(tenantId, currentPlan) {
+    const plans = { TRIAL: '14 días', BASIC: '30 días', PRO: '30 días', ENTERPRISE: '365 días' };
+    const days  = { TRIAL: 14, BASIC: 30, PRO: 30, ENTERPRISE: 365 };
+
+    const planOptions = ['TRIAL', 'BASIC', 'PRO', 'ENTERPRISE'];
+    const planIdx = planOptions.indexOf(currentPlan);
+
+    // Buscar el UID del admin del tenant
+    let adminUid = null;
+    try {
+        const tenantDoc = await db.collection('tenants').doc(tenantId).get();
+        if (tenantDoc.exists) {
+            const adminEmail = tenantDoc.data().admin_email;
+            if (adminEmail) {
+                // Buscar el UID en la lista de usuarios
+                const listFn = firebase.functions().httpsCallable('list_dashboard_users');
+                const usersRes = await listFn({});
+                if (usersRes.data.status === 'success') {
+                    const user = usersRes.data.users.find(u => u.email === adminEmail);
+                    if (user) adminUid = user.uid;
+                }
+            }
+        }
+    } catch (_) {}
+
+    if (!adminUid) {
+        showToast('error', 'Error', 'No se encontró el UID del administrador del tenant. Verifica en Firebase Console.');
+        return;
+    }
+
+    const newPlan = prompt(
+        `Renovar suscripción para "${tenantId}"\n\nPlan actual: ${currentPlan}\nElige nuevo plan:\n  1 → TRIAL (14 días)\n  2 → BASIC (30 días)\n  3 → PRO (30 días)\n  4 → ENTERPRISE (365 días)\n\nIngresa el número:`,
+        String(planIdx + 1)
+    );
+    if (!newPlan) return;
+
+    const idx = parseInt(newPlan) - 1;
+    if (isNaN(idx) || idx < 0 || idx > 3) {
+        showToast('error', 'Plan inválido', 'Ingresa un número entre 1 y 4.');
+        return;
+    }
+
+    const selectedPlan = planOptions[idx];
+    const selectedDays = days[selectedPlan];
+
+    try {
+        showToast('info', 'Renovando...', `Procesando renovación ${selectedPlan} para ${tenantId}`);
+
+        const createSubFn = firebase.functions().httpsCallable('create_subscription');
+        const res = await createSubFn({
+            uid: adminUid,
+            plan: selectedPlan,
+            trial_days: selectedDays,
+            plan_days: selectedDays
+        });
+
+        if (res.data.status === 'success') {
+            // Actualizar el campo plan en el documento del tenant también
+            await db.collection('tenants').doc(tenantId).update({
+                plan: selectedPlan,
+                expiration: res.data.end_date,
+                status: 'ACTIVE'
+            });
+            showToast('success', 'Suscripción Renovada', `${tenantId} → ${selectedPlan} hasta ${res.data.end_date}`);
+            setTimeout(() => loadSaasTenants(), 1000);
+        } else {
+            throw new Error(res.data.message);
+        }
+    } catch (err) {
+        console.error('[SaaS] Error renovando:', err);
+        showToast('error', 'Error al Renovar', err.message);
+    }
+};
+
+// ─── Bloquear / Desbloquear tenant ───
+window.saasToggleBlock = async function(tenantId, block) {
+    const action = block ? 'BLOQUEAR' : 'ACTIVAR';
+    const reason = block
+        ? prompt(`¿Motivo del bloqueo para "${tenantId}"? (opcional)`, 'Suscripción vencida')
+        : 'Reactivación manual desde panel SaaS';
+
+    if (block && reason === null) return; // Canceló
+
+    try {
+        showToast('info', block ? 'Bloqueando cuenta...' : 'Activando cuenta...', `Procesando para ${tenantId}`);
+
+        // Buscar el UID del admin del tenant
+        const tenantDoc = await db.collection('tenants').doc(tenantId).get();
+        if (!tenantDoc.exists) {
+            showToast('error', 'Error', 'Tenant no encontrado.');
+            return;
+        }
+
+        const adminEmail = tenantDoc.data().admin_email;
+        const listFn = firebase.functions().httpsCallable('list_dashboard_users');
+        const usersRes = await listFn({});
+        let adminUid = null;
+        if (usersRes.data.status === 'success') {
+            const user = usersRes.data.users.find(u => u.email === adminEmail);
+            if (user) adminUid = user.uid;
+        }
+
+        if (!adminUid) {
+            // Si no se encontró el UID, actualizar solo el documento del tenant
+            await db.collection('tenants').doc(tenantId).update({
+                status: block ? 'BLOCKED' : 'ACTIVE'
+            });
+            showToast('success', block ? 'Tenant bloqueado' : 'Tenant activado', `Estado actualizado en Firestore para ${tenantId}`);
+            setTimeout(() => loadSaasTenants(), 800);
+            return;
+        }
+
+        // Usar Cloud Function para afectar el Custom Claim del usuario
+        const toggleFn = firebase.functions().httpsCallable('update_subscription_status');
+        const res = await toggleFn({ uid: adminUid, blocked: block, reason: reason || '' });
+
+        if (res.data.status === 'success') {
+            // Actualizar también el documento tenant
+            await db.collection('tenants').doc(tenantId).update({
+                status: block ? 'BLOCKED' : 'ACTIVE'
+            });
+            showToast('success', block ? '🚫 Cuenta Bloqueada' : '✅ Cuenta Activada', res.data.message);
+            setTimeout(() => loadSaasTenants(), 800);
+        } else {
+            throw new Error(res.data.message);
+        }
+    } catch (err) {
+        console.error('[SaaS] Error toggling block:', err);
+        showToast('error', 'Error', err.message);
+    }
+};
+
+// ─── Eliminar cliente permanentemente (SaaS — Solo SUPER_ADMIN) ───
+window.saasDeleteTenant = async function(tenantId) {
+    // Confirmación de seguridad con nombre del tenant
+    const confirm1 = confirm(`⚠ ACCIÓN IRREVERSIBLE\n\n¿Estás seguro de que deseas eliminar permanentemente el cliente "${tenantId}"?\n\nEsto eliminará:\n• El documento del tenant en Firestore\n• El registro de suscripción\n• El acceso a la plataforma (cuenta bloqueada en Firebase Auth)\n\nEscribe el ID del tenant en el siguiente paso para confirmar.`);
+    if (!confirm1) return;
+
+    const confirmId = prompt(`Para confirmar, escribe exactamente el ID del cliente:\n\n"${tenantId}"`);
+    if (confirmId !== tenantId) {
+        if (confirmId !== null) showToast('error', 'Eliminación Cancelada', 'El ID ingresado no coincide. Operación cancelada por seguridad.');
+        return;
+    }
+
+    try {
+        showToast('info', '🗑 Eliminando cliente...', `Procesando eliminación de ${tenantId}`);
+
+        // 1. Obtener UID del admin del tenant para deshabilitar su cuenta en Auth
+        const tenantDoc = await db.collection('tenants').doc(tenantId).get();
+        let adminUid = null;
+
+        if (tenantDoc.exists) {
+            const tData = tenantDoc.data();
+            // Intentar admin_uid guardado directamente (disponible en tenants creados con la versión corregida)
+            if (tData.admin_uid) {
+                adminUid = tData.admin_uid;
+            } else if (tData.admin_email) {
+                // Fallback: buscar UID por email via Cloud Function
+                try {
+                    const listFn = firebase.functions().httpsCallable('list_dashboard_users');
+                    const usersRes = await listFn({});
+                    if (usersRes.data.status === 'success') {
+                        const user = usersRes.data.users.find(u => u.email === tData.admin_email);
+                        if (user) adminUid = user.uid;
+                    }
+                } catch (_) {}
+            }
+        }
+
+        // 2. Si encontramos el UID, bloquear el acceso de Firebase Auth
+        if (adminUid) {
+            try {
+                const blockFn = firebase.functions().httpsCallable('update_subscription_status');
+                await blockFn({ uid: adminUid, blocked: true, reason: `Cuenta eliminada por SUPER_ADMIN — tenant ${tenantId}` });
+            } catch (_) {}
+
+            // 3. Eliminar documento de suscripción
+            try {
+                await db.collection('subscriptions').doc(adminUid).delete();
+            } catch (_) {}
+        }
+
+        // 4. Eliminar documento del tenant de Firestore
+        await db.collection('tenants').doc(tenantId).delete();
+
+        showToast('success', '🗑 Cliente Eliminado', `El tenant "${tenantId}" ha sido eliminado permanentemente del sistema.`);
+        setTimeout(() => loadSaasTenants(), 800);
+
+    } catch (err) {
+        console.error('[SaaS] Error eliminando tenant:', err);
+        showToast('error', 'Error al Eliminar', `No se pudo eliminar el tenant: ${err.message}`);
+    }
+};
+
+// ─── Cambiar contraseña de cliente desde el panel SaaS (SUPER_ADMIN) ───
+window.saasChangePassword = async function(tenantId, adminEmail) {
+    if (!adminEmail) {
+        showToast('error', 'Error', 'El tenant no tiene un email de administrador registrado.');
+        return;
+    }
+    const newPass = prompt(`Asignar nueva contraseña para "${adminEmail}" (Tenant: ${tenantId}):\n\nIngresa la nueva contraseña (mínimo 6 caracteres):`);
+    if (!newPass) return;
+    if (newPass.length < 6) {
+        showToast('error', 'Contraseña muy corta', 'La contraseña debe tener al menos 6 caracteres.');
+        return;
+    }
+    try {
+        showToast('info', 'Actualizando...', `Cambiando contraseña para ${adminEmail}`);
+        const setPassFn = firebase.functions().httpsCallable('admin_set_user_password');
+        const res = await setPassFn({ email: adminEmail, password: newPass });
+        if (res.data.status === 'success') {
+            showToast('success', '🔑 Contraseña Actualizada', `Nueva clave asignada con éxito a ${adminEmail}`);
+        } else {
+            throw new Error(res.data.message);
+        }
+    } catch (e) {
+        console.error('[SaaS] Error cambiando clave:', e);
+        showToast('error', 'Error al cambiar clave', e.message);
     }
 };
 

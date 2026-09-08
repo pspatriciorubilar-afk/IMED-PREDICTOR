@@ -22,8 +22,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   bool _isLoading = false;
 
   String _buildAthleteId(String first, String last, String age) {
-    final f = first.trim().toLowerCase().replaceAll(' ', '_');
-    final l = last.trim().toLowerCase().replaceAll(' ', '_');
+    String sanitize(String input) {
+      return input
+          .trim()
+          .toLowerCase()
+          .replaceAll(RegExp(r'[áàäâã]'), 'a')
+          .replaceAll(RegExp(r'[éèëê]'), 'e')
+          .replaceAll(RegExp(r'[íìïî]'), 'i')
+          .replaceAll(RegExp(r'[óòöôõ]'), 'o')
+          .replaceAll(RegExp(r'[úùüû]'), 'u')
+          .replaceAll(RegExp(r'[ñ]'), 'n')
+          .replaceAll(RegExp(r'[^a-z0-9_]'), '_')
+          .replaceAll(RegExp(r'_+'), '_')
+          .replaceAll(RegExp(r'^_|_$'), '');
+    }
+    final f = sanitize(first);
+    final l = sanitize(last);
     return '${f}_${l}_${age.trim()}';
   }
 
@@ -43,15 +57,41 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _isLoading = true);
 
     String? tenantId;
+    String resolvedCode = code;
 
     try {
-      // Intentar validar en Firestore si está conectado
-      final querySnap = await FirebaseFirestore.instance
+      // 1. Intentar validar en Firestore el código tal como fue ingresado
+      var querySnap = await FirebaseFirestore.instance
           .collection('tenants')
           .where('associationCode', isEqualTo: code)
           .limit(1)
           .get()
           .timeout(const Duration(seconds: 6));
+
+      // 2. Fallback inteligente: Si no coincide y contiene caracteres ambiguos (0 vs O, 1 vs I),
+      // probar las combinaciones automáticas para evitar frustración al atleta
+      if (querySnap.docs.isEmpty) {
+        final List<String> variations = [];
+        if (code.contains('0')) variations.add(code.replaceAll('0', 'O'));
+        if (code.contains('O')) variations.add(code.replaceAll('O', '0'));
+        if (code.contains('1')) variations.add(code.replaceAll('1', 'I'));
+        if (code.contains('I')) variations.add(code.replaceAll('I', '1'));
+
+        for (final alt in variations) {
+          try {
+            final altSnap = await FirebaseFirestore.instance
+                .collection('tenants')
+                .where('associationCode', isEqualTo: alt)
+                .limit(1)
+                .get()
+                .timeout(const Duration(seconds: 4));
+            if (altSnap.docs.isNotEmpty) {
+              querySnap = altSnap;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
 
       if (querySnap.docs.isEmpty) {
         setState(() => _isLoading = false);
@@ -62,6 +102,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       }
 
       tenantId = querySnap.docs[0].id;
+      final actualData = querySnap.docs[0].data();
+      resolvedCode = (actualData['associationCode'] as String?) ?? code;
     } catch (e) {
       // Si falla por red/tiempo (offline), permitimos el paso guardando solo el código
       // y resolveremos el tenantId después cuando recupere la conexión.
@@ -78,7 +120,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       chronotype: Chronotype.intermediate, // Default
       preferredTrainingHour: 7, // Default
       registeredAt: DateTime.now(),
-      associationCode: code,
+      associationCode: resolvedCode,
       tenantId: tenantId,
     );
 

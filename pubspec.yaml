@@ -1,7 +1,7 @@
 name: imed_sport
 description: "Plataforma de Alto Rendimiento IMED PREDICTOR (PVT + Circadian)"
 publish_to: 'none'
-version: 4.1.2+2
+version: 4.1.3+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -52,6 +52,9 @@ dev_dependencies:
   isar_generator: ^3.1.0+1
   build_runner: ^2.4.8
   flutter_launcher_icons: ^0.13.1
+
+dependency_overrides:
+  win32: ^5.10.1
 
 flutter_launcher_icons:
   android: true

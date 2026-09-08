@@ -3,7 +3,20 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter_timezone/flutter_timezone.dart';
-import '../../features/circadian_optimizer/domain/circadian_models.dart';
+
+class CircadianEvent {
+  final String title;
+  final String scientificDescription;
+  final DateTime plannedTime;
+  final dynamic phaseColor;
+
+  CircadianEvent({
+    required this.title,
+    required this.scientificDescription,
+    required this.plannedTime,
+    this.phaseColor,
+  });
+}
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -55,6 +68,7 @@ class NotificationService {
           tz.TZDateTime.from(event.plannedTime, tz.local),
           _getNotificationDetails(event.phaseColor),
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
         );
       }
     }

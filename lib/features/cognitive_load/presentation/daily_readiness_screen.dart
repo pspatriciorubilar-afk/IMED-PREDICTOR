@@ -97,7 +97,9 @@ class DailyReadinessScreen extends StatelessWidget {
     final String status      = record['status'] as String? ?? '';
     final String narrative   = record['message'] as String? ?? '';
     final String ctxDetail   = record['contextDetail'] as String? ?? '';
-    final bool isOffline     = record['isOfflineMode'] as bool? ?? false;
+    final int lapses         = record['lapses'] as int? ?? 0;
+    final int slowest        = record['slowest'] as int? ?? 0;
+    final int meanLatency    = record['meanLatency'] as int? ?? 0;
     final String timestamp   = _fmt(record['timestamp'] as String? ?? '');
     final Color color        = _statusColor(status);
 
@@ -177,7 +179,7 @@ class DailyReadinessScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          _statusLabel(status),
+                          _statusLabel(status, lapses: lapses),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: color,
@@ -195,6 +197,43 @@ class DailyReadinessScreen extends StatelessWidget {
           ),
           const SizedBox(height: 48),
 
+          // ── Alerta Atencional (Lapses PVT) ──────────────────────────────
+          if (lapses > 0) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: _amber.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: _amber.withOpacity(0.35)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: _amber, size: 22),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'ALERTA ATENCIONAL — CORTEZA SNC',
+                          style: TextStyle(color: _amber, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          lapses == 1
+                              ? 'Se registró 1 lapso de atención (${slowest > 0 ? "$slowest ms" : ">500 ms"}). Tu semáforo se ajustó preventivamente a Fatiga Incipiente para evitar sobrecarga del sistema nervioso.'
+                              : 'Se detectaron $lapses lapsos de atención involuntarios. Fatiga central acumulada en proceso.',
+                          style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.45),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
 
           // ── Narrativa ────────────────────────────────────────────────────
           Container(
@@ -257,8 +296,15 @@ class DailyReadinessScreen extends StatelessWidget {
           // ── Mini cards ───────────────────────────────────────────────────
           Row(children: [
             _miniCard('ESTADO SNC', status, color),
-            const SizedBox(width: 12),
-            _miniCard('MOTOR', 'IRI v2.1', _cyan),
+            const SizedBox(width: 8),
+            _miniCard('LAPSOS PVT', lapses > 0 ? '$lapses alerta' : '0 óptimo', lapses > 0 ? _amber : _green),
+            if (meanLatency > 0) ...[
+              const SizedBox(width: 8),
+              _miniCard('LATENCIA', '$meanLatency ms', _cyan),
+            ] else ...[
+              const SizedBox(width: 8),
+              _miniCard('MOTOR', 'IRI v2.2', _cyan),
+            ],
           ]),
           const SizedBox(height: 32),
         ],
@@ -272,7 +318,7 @@ class DailyReadinessScreen extends StatelessWidget {
   Widget _miniCard(String label, String value, Color valueColor) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
         decoration: BoxDecoration(
           color: _surface,
           border: Border.all(color: Colors.white.withOpacity(0.05)),
@@ -285,7 +331,7 @@ class DailyReadinessScreen extends StatelessWidget {
                 letterSpacing: 1.5, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text(value, style: TextStyle(
-                color: valueColor, fontSize: 12, fontWeight: FontWeight.bold)),
+                color: valueColor, fontSize: 11, fontWeight: FontWeight.bold)),
           ],
         ),
       ),
@@ -295,13 +341,15 @@ class DailyReadinessScreen extends StatelessWidget {
   Color _statusColor(String s) {
     if (s == 'VERDE')    return _green;
     if (s == 'AMARILLO') return _amber;
+    if (s == 'NARANJA')  return Colors.deepOrangeAccent;
     if (s == 'ROJO')     return _red;
     return _cyan;
   }
 
-  String _statusLabel(String s) {
+  String _statusLabel(String s, {int lapses = 0}) {
     if (s == 'VERDE')    return 'ESTADO PRIME';
-    if (s == 'AMARILLO') return 'MANTENIMIENTO';
+    if (s == 'AMARILLO') return lapses > 0 ? 'FATIGA INCIPIENTE' : 'MANTENIMIENTO';
+    if (s == 'NARANJA')  return lapses >= 2 ? 'FATIGA EN PROCESO' : 'CARGA REDUCIDA';
     if (s == 'ROJO')     return 'RECUPERACIÓN';
     return 'SIN DATOS';
   }

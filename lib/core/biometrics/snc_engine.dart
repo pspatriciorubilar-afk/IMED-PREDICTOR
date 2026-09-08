@@ -108,15 +108,51 @@ class SNCEngine {
   // ───────────────────────────────────────────────────────────────────────────
 
   /// Retorna el estado del semáforo de disponibilidad deportiva (v4.11).
-  static String getStatus(int iri) {
+  /// Integra la "Hard-Rule de Lapses" para consistencia clínica con el backend web:
+  /// - 1 lapse: Sobrescribe GREEN a AMARILLO (Fatiga Incipiente)
+  /// - >= 2 lapses: Sobrescribe a NARANJA (Fatiga en Proceso)
+  static String getStatus(int iri, {int lapses = 0}) {
+    // ── HARD-RULE DE LAPSES (Consistencia con Ex-Gaussian Worker) ───────────
+    if (lapses >= 2) {
+      return 'NARANJA'; // Fatiga en proceso por múltiples bloqueos
+    } else if (lapses == 1) {
+      if (iri >= 85) {
+        return 'AMARILLO'; // Fatiga incipiente por lapso atencional
+      }
+    }
+
     if (iri >= 85) return 'VERDE';    // ÓPTIMO: Disponible para alta carga
     if (iri >= 70) return 'AMARILLO'; // PRECAUCIÓN: Carga moderada
     if (iri >= 50) return 'NARANJA';  // FATIGA: Reducir carga
     return 'ROJO';                    // CRÍTICO: Priorizar recuperación
   }
 
-  /// Genera feedback narrativo deportivo (frase motivadora) según el IRI final.
-  static String getNarrativeFeedback(int iri) {
+  /// Retorna la etiqueta amigable del estado clínico según semáforo y lapsos.
+  static String getStatusLabel(String status, {int lapses = 0}) {
+    if (status == 'VERDE') return 'ESTADO PRIME';
+    if (status == 'AMARILLO') {
+      return lapses > 0 ? 'FATIGA INCIPIENTE' : 'MANTENIMIENTO';
+    }
+    if (status == 'NARANJA') {
+      return lapses >= 2 ? 'FATIGA EN PROCESO' : 'CARGA REDUCIDA';
+    }
+    if (status == 'ROJO') return 'RECUPERACIÓN';
+    return status;
+  }
+
+  /// Genera feedback narrativo deportivo según el IRI final y lapsos de atención.
+  static String getNarrativeFeedback(int iri, {int lapses = 0, int? slowestMs}) {
+    if (lapses >= 2) {
+      return 'Fatiga central detectada: Se registraron $lapses lapsos de atención (>500ms). Tu sistema nervioso requiere descanso y recuperación activa antes de cargas intensas.';
+    } else if (lapses == 1) {
+      final msText = slowestMs != null && slowestMs > 0 ? ' ($slowestMs ms)' : '';
+      if (iri >= 85) {
+        return 'Fatiga incipiente detectada: Se registró 1 lapso de atención$msText. Aunque tu resiliencia global es alta ($iri pts), modera la exigencia táctica y monitorea tu concentración.';
+      } else {
+        return 'Precaución atencional: Se detectó 1 lapso de atención$msText con resiliencia moderada ($iri pts). Prioriza la recuperación hoy.';
+      }
+    }
+
     if (iri >= 85) {
       return 'Tu sistema nervioso está en estado óptimo. ¡Hoy es un buen día para dar el máximo!';
     } else if (iri >= 70) {
@@ -129,9 +165,20 @@ class SNCEngine {
   }
 
   /// Genera un "Insight Cualitativo" conectando los hábitos (Wellness) con el 
-  /// rendimiento (PVT), usando lenguaje amigable para el deportista.
-  static String getContextualNarrative(int iriBase, int iriFinal, WellnessSurvey wellness) {
+  /// rendimiento (PVT), incorporando advertencias atencionales.
+  static String getContextualNarrative(
+    int iriBase, 
+    int iriFinal, 
+    WellnessSurvey wellness, 
+    {int lapses = 0, int? slowestMs}
+  ) {
     List<String> insights = [];
+
+    // Análisis de Lapsos Atencionales (Prioridad Neuro-funcional)
+    if (lapses > 0) {
+      final msText = slowestMs != null && slowestMs > 0 ? ' con latencia máxima de ${slowestMs}ms' : '';
+      insights.add("Se registró $lapses lapso${lapses > 1 ? 's' : ''} de atención (>500ms)$msText, indicando micro-desconexión cortical transitoria.");
+    }
 
     // Análisis de Sueño (Factor más crítico)
     if (wellness.sleepHours < 6) {

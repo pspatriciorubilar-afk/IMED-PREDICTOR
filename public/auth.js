@@ -175,14 +175,14 @@
     };
 
     // ─── Inyectar botón logout y detalles del usuario activo ───
-    function injectUserHeaderInfo() {
+    async function injectUserHeaderInfo() {
       const topbarRight = document.querySelector('.topbar-right');
       if (!topbarRight) { setTimeout(injectUserHeaderInfo, 100); return; }
       
       const user = auth.currentUser;
       if (!user) return;
 
-      // 1. Inyectar o actualizar info del usuario (correo y rol) al lado del avatar
+      // 1. Inyectar o actualizar info del usuario (correo y rol/identificación) al lado del avatar
       let infoEl = document.getElementById('user-header-info');
       if (!infoEl) {
         infoEl = document.createElement('div');
@@ -198,7 +198,60 @@
       }
 
       const isSuperAdmin = user.email === 'ps.patriciorubilar@gmail.com';
-      const roleText = isSuperAdmin ? 'Super Admin' : 'Demo CORFO';
+      const isDemo       = user.email === 'demo@imedpredictor.com';
+
+      let roleText = '';
+      let initials = 'CL';
+
+      if (isSuperAdmin) {
+        roleText = 'Super Admin';
+        initials = 'PS';
+      } else if (isDemo) {
+        roleText = 'Demo CORFO';
+        initials = 'DM';
+      } else {
+        // Usuario cliente real
+        let clientName = window.currentUserTenantName || user.displayName || '';
+
+        // Si aún no está en cache, buscar el tenant en Firestore
+        if (!clientName && window.firebase && firebase.firestore) {
+          try {
+            const dbInstance = firebase.firestore();
+            const tokenRes = await user.getIdTokenResult();
+            const tid = tokenRes.claims && tokenRes.claims.tenantId;
+            if (tid) {
+              const tDoc = await dbInstance.collection('tenants').doc(tid).get();
+              if (tDoc.exists && tDoc.data().name) {
+                clientName = tDoc.data().name;
+                window.currentUserTenantName = clientName;
+              }
+            }
+            if (!clientName) {
+              const snap = await dbInstance.collection('tenants').where('admin_email', '==', user.email).limit(1).get();
+              if (!snap.empty && snap.docs[0].data().name) {
+                clientName = snap.docs[0].data().name;
+                window.currentUserTenantName = clientName;
+              }
+            }
+          } catch (e) {
+            console.warn('[Auth] Error al obtener nombre del cliente:', e);
+          }
+        }
+
+        roleText = clientName || user.displayName || 'Cliente';
+
+        // Calcular iniciales representativas para el avatar
+        const sourceForInitials = (clientName || user.displayName || user.email.split('@')[0]).trim();
+        const words = sourceForInitials.split(/[\s._-]+/).filter(Boolean);
+        if (words.length >= 2) {
+          initials = (words[0][0] + words[1][0]).toUpperCase();
+        } else if (words.length === 1 && words[0].length >= 2) {
+          initials = words[0].substring(0, 2).toUpperCase();
+        } else if (words.length === 1 && words[0].length === 1) {
+          initials = words[0].toUpperCase();
+        }
+      }
+
       infoEl.innerHTML = `
         <span style="font-size:11px; font-weight:800; color:#fff; letter-spacing:0.5px">${roleText}</span>
         <span style="font-size:9px; color:#636375; font-weight:500">${user.email}</span>
@@ -207,7 +260,7 @@
       // 2. Personalizar iniciales del avatar
       const avatarEl = topbarRight.querySelector('.avatar');
       if (avatarEl) {
-        avatarEl.textContent = isSuperAdmin ? 'PS' : 'DM';
+        avatarEl.textContent = initials;
       }
 
       // 3. Inyectar botón logout
@@ -226,6 +279,7 @@
         topbarRight.appendChild(logoutBtn);
       }
     }
+    window.updateUserHeaderInfo = injectUserHeaderInfo;
 
     // ─── Controladores del Modal de Registro y Contratación SaaS ───
     let selectedRegPlan = 'BASIC';

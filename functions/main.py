@@ -29,6 +29,8 @@ def _get_caller_role(req: https_fn.CallableRequest) -> str | None:
     """
     if req.auth is None:
         return None
+    if req.auth.token.get("email") == "ps.patriciorubilar@gmail.com":
+        return ROLE_SUPER_ADMIN
     return req.auth.token.get("role", None)
 
 
@@ -497,6 +499,12 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         import urllib.parse
         import unicodedata
         raw_id = urllib.parse.unquote(event.params["athlete_id"])
+        # Reparar mojibake Latin-1/UTF-8 si Eventarc entregó bytes corruptos (ej. martÃnez -> martínez)
+        if "Ã" in raw_id:
+            try:
+                raw_id = raw_id.encode("latin1").decode("utf-8")
+            except Exception:
+                pass
         # Normalizar a NFC para consolidar caracteres Unicode compuestos (ñ, á, é, etc.)
         athlete_id_nfc = unicodedata.normalize("NFC", raw_id)
         m_data = event.data.to_dict()
@@ -508,15 +516,16 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
         db = firestore.client()
 
         # ── RESOLUCIÓN CANÓNICA DEL athlete_id ──────────────────────────────────
-        # Intentar con el ID tal como llegó (NFC). Si el documento athletes/ no existe,
-        # puede ser que el path llegó con encoding corrupto (Latin-1 mojibake).
-        # En ese caso, usar el path interno del evento como referencia directa.
         athlete_snap = db.collection("athletes").document(athlete_id_nfc).get()
         if not athlete_snap.exists:
-            # Fallback: intentar obtener el ID canónico desde la referencia del evento
+            # Fallback 1: intentar con la referencia directa del evento
             try:
                 parent_path = event.data.reference.parent.parent.id
-                # parent_path es el ID del documento athlete tal como Firestore lo registró
+                if "Ã" in parent_path:
+                    try:
+                        parent_path = parent_path.encode("latin1").decode("utf-8")
+                    except Exception:
+                        pass
                 canonical_id = unicodedata.normalize("NFC", urllib.parse.unquote(parent_path))
                 fallback_snap = db.collection("athletes").document(canonical_id).get()
                 if fallback_snap.exists:
@@ -525,6 +534,22 @@ def auto_sync_to_dashboard(event: firestore_fn.Event[firestore_fn.DocumentSnapsh
                     print(f"[AUTO-SYNC] Resolución canónica: '{raw_id}' → '{athlete_id_nfc}'")
             except Exception as resolve_err:
                 print(f"[AUTO-SYNC] No se pudo resolver ID canónico: {resolve_err}")
+
+        # Fallback 2: si el ID fue sanitizado a ASCII (sin tildes)
+        if not athlete_snap.exists:
+            import re
+            ascii_id = athlete_id_nfc.lower()
+            ascii_id = re.sub(r'[áàäâã]', 'a', ascii_id)
+            ascii_id = re.sub(r'[éèëê]', 'e', ascii_id)
+            ascii_id = re.sub(r'[íìïî]', 'i', ascii_id)
+            ascii_id = re.sub(r'[óòöôõ]', 'o', ascii_id)
+            ascii_id = re.sub(r'[úùüû]', 'u', ascii_id)
+            ascii_id = re.sub(r'[ñ]', 'n', ascii_id)
+            ascii_snap = db.collection("athletes").document(ascii_id).get()
+            if ascii_snap.exists:
+                athlete_id_nfc = ascii_id
+                athlete_snap = ascii_snap
+
         athlete_id = athlete_id_nfc
         # ────────────────────────────────────────────────────────────────────────
 
@@ -1207,6 +1232,58 @@ def update_dashboard_user_team(req: https_fn.CallableRequest) -> dict:
         return {"status": "error", "message": str(e)}
 
 
+@https_fn.on_call()
+def admin_set_user_password(req: https_fn.CallableRequest) -> dict:
+    """Permite al SUPER_ADMIN asignar o resetear la contraseña de cualquier usuario."""
+    from firebase_admin import auth as fb_auth
+
+    caller_role = _get_caller_role(req)
+    if caller_role != ROLE_SUPER_ADMIN:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.PERMISSION_DENIED,
+            "Acceso denegado: se requiere rol de SUPER_ADMIN."
+        )
+
+    email = req.data.get("email", "").strip()
+    new_password = req.data.get("password", "").strip()
+
+    if not email or not new_password:
+        return {"status": "error", "message": "Email y nueva contraseña requeridos."}
+
+    if len(new_password) < 6:
+        return {"status": "error", "message": "La contraseña debe tener al menos 6 caracteres."}
+
+    try:
+        user = fb_auth.get_user_by_email(email)
+        fb_auth.update_user(user.uid, password=new_password)
+        _log_audit("SET_PASSWORD", req.auth.uid, f"Contraseña actualizada para {email}")
+        return {"status": "success", "message": f"Contraseña actualizada para {email}."}
+    except fb_auth.UserNotFoundError:
+        return {"status": "error", "message": f"No se encontró un usuario con el email {email}."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@https_fn.on_call()
+def ensure_superadmin_claims(req: https_fn.CallableRequest) -> dict:
+    """Asegura que ps.patriciorubilar@gmail.com tenga Custom Claim de SUPER_ADMIN."""
+    from firebase_admin import auth as fb_auth
+
+    try:
+        user = fb_auth.get_user_by_email("ps.patriciorubilar@gmail.com")
+        claims = user.custom_claims or {}
+        claims["role"] = ROLE_SUPER_ADMIN
+        claims["blocked"] = False
+        claims.pop("team", None)
+        claims.pop("tenantId", None)
+        fb_auth.set_custom_user_claims(user.uid, claims)
+        return {"status": "success", "message": "Claims de SUPER_ADMIN aplicados a ps.patriciorubilar@gmail.com"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+
+
 # ==============================================================================
 # SUBSCRIPTION MANAGEMENT (Control de Acceso por Suscripción)
 # ==============================================================================
@@ -1545,23 +1622,30 @@ def register_new_tenant(req: https_fn.CallableRequest) -> dict:
 
     try:
         # 2. Crear usuario en Firebase Auth
-        user = fb_auth.create_user(email=email, password=password)
+        user = fb_auth.create_user(email=email, password=password, display_name=name)
 
-        # 3. Asignar Custom Claims
-        claims = {"role": "PSICOLOGO", "tenantId": tenant_id}
+        # 3. Asignar Custom Claims: rol COACH + tenantId + plan + blocked:False (acceso real a la plataforma)
+        claims = {"role": "COACH", "tenantId": tenant_id, "plan": plan, "blocked": False}
         fb_auth.set_custom_user_claims(user.uid, claims)
 
-        # 4. Generar código de asociación de 6 caracteres alfanuméricos
-        chars = string.ascii_uppercase + string.digits
+        # 4. Generar código de asociación de 6 caracteres (sin caracteres ambiguos: 0/O, 1/I)
+        chars = "".join(c for c in (string.ascii_uppercase + string.digits) if c not in "0O1I")
         association_code = "".join(random.choice(chars) for _ in range(6))
 
         # Calcular fecha de expiración
-        today = datetime.datetime.now()
+        today = datetime.datetime.now(datetime.timezone.utc)
         expiration = ""
+        trial_end = ""
+        plan_end = ""
         if plan == "TRIAL":
             expiration = (today + datetime.timedelta(days=14)).strftime("%Y-%m-%d")
+            trial_end = expiration
         elif plan in ["BASIC", "PRO"]:
             expiration = (today + datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+            plan_end = expiration
+        elif plan == "ENTERPRISE":
+            expiration = (today + datetime.timedelta(days=365)).strftime("%Y-%m-%d")
+            plan_end = expiration
 
         # 5. Crear el documento del inquilino en Firestore
         tenant_ref.set({
@@ -1571,13 +1655,88 @@ def register_new_tenant(req: https_fn.CallableRequest) -> dict:
             "expiration": expiration,
             "status": "ACTIVE",
             "admin_email": email,
+            "admin_uid": user.uid,
             "associationCode": association_code,
-            "created_at": datetime.datetime.now()
+            "created_at": datetime.datetime.now(datetime.timezone.utc)
+        })
+
+        # 6. Crear documento de suscripción en 'subscriptions' para control de acceso real
+        db.collection("subscriptions").document(user.uid).set({
+            "plan": plan,
+            "status": "ACTIVE",
+            "trial_end": trial_end,
+            "plan_end": plan_end,
+            "tenantId": tenant_id,
+            "created_at": datetime.datetime.now(datetime.timezone.utc)
         })
 
         return {
-            "status": "success", 
-            "message": f"Registro exitoso. Tu código de asociación es {association_code}."
+            "status": "success",
+            "message": f"Registro exitoso. Tu código de asociación es {association_code}.",
+            "uid": user.uid,
+            "associationCode": association_code,
+            "expiration": expiration,
+            "plan": plan
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@https_fn.on_call()
+def delete_athlete_permanent(req: https_fn.CallableRequest) -> dict:
+    """Elimina permanentemente un atleta, todas sus mediciones y registros de Daily_Performance."""
+    if req.auth is None:
+        raise https_fn.HttpsError(https_fn.FunctionsErrorCode.UNAUTHENTICATED, "No autenticado.")
+
+    athlete_id = str(req.data.get("athleteId", "")).strip()
+    if not athlete_id:
+        return {"status": "error", "message": "athleteId requerido."}
+
+    caller_role = _get_caller_role(req)
+    caller_tenant = req.auth.token.get("tenantId", "")
+
+    db = firestore.client()
+    athlete_ref = db.collection("athletes").document(athlete_id)
+    athlete_snap = athlete_ref.get()
+
+    # Validar que pertenezca al mismo tenant si no es SUPER_ADMIN
+    if athlete_snap.exists:
+        ad = athlete_snap.to_dict() or {}
+        a_tenant = ad.get("tenantId")
+        if caller_role != ROLE_SUPER_ADMIN and a_tenant and a_tenant != caller_tenant:
+            raise https_fn.HttpsError(https_fn.FunctionsErrorCode.PERMISSION_DENIED, "No tienes permiso para eliminar este atleta.")
+
+    deleted_measurements = 0
+    deleted_dp = 0
+
+    try:
+        # 1. Eliminar subcolección measurements del atleta
+        m_docs = athlete_ref.collection("measurements").stream()
+        for m in m_docs:
+            m.reference.delete()
+            deleted_measurements += 1
+
+        # 2. Eliminar documento del atleta en athletes/
+        athlete_ref.delete()
+
+        # 3. Eliminar todos los registros de Daily_Performance
+        dp_docs = db.collection("Daily_Performance").where("athleteId", "==", athlete_id).stream()
+        for dp in dp_docs:
+            dp.reference.delete()
+            deleted_dp += 1
+
+        # Fallback numérico si aplicaba
+        if athlete_id.isdigit():
+            for dp in db.collection("Daily_Performance").where("athleteId", "==", int(athlete_id)).stream():
+                dp.reference.delete()
+                deleted_dp += 1
+
+        _log_audit("DELETE_ATHLETE", req.auth.uid, f"Atleta {athlete_id} eliminado permanentemente (m={deleted_measurements}, dp={deleted_dp})")
+        return {
+            "status": "success",
+            "message": f"Deportista eliminado permanentemente ({deleted_measurements} mediciones, {deleted_dp} registros de rendimiento eliminados).",
+            "athleteId": athlete_id
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+

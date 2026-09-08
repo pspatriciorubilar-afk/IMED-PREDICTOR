@@ -378,20 +378,34 @@ class _ProcessingScreenState extends State<_ProcessingScreen>
       ]);
 
     } catch (e) {
-      // FALLBACK INMEDIATO: IRI con contexto del cuestionario diario
+      // FALLBACK INMEDIATO: IRI con contexto del cuestionario diario y regla de lapsos
       _setStatus("Calculando rendimiento local...");
       final localScore = SNCEngine.calculateIRIFromPayload(widget.payload);
       final baseScore = SNCEngine.calculateIRI(
         0.0, // Ya no se usa HRV
         widget.payload.pvtLog,
       );
+      final validLogs = widget.payload.pvtLog.where((t) => t > 100).toList();
+      final int lapses = validLogs.where((t) => t > 500).length;
+      final int slowest = validLogs.isEmpty ? 0 : validLogs.reduce((a, b) => a > b ? a : b);
+      final int fastest = validLogs.isEmpty ? 0 : validLogs.reduce((a, b) => a < b ? a : b);
+      final int meanLatency = validLogs.isEmpty ? 0 : (validLogs.reduce((a, b) => a + b) / validLogs.length).round();
+      final String localStatus = SNCEngine.getStatus(localScore, lapses: lapses);
+      final String localNarrative = SNCEngine.getNarrativeFeedback(localScore, lapses: lapses, slowestMs: slowest);
+      final String localContext = SNCEngine.getContextualNarrative(
+        baseScore, localScore, widget.payload.wellness,
+        lapses: lapses, slowestMs: slowest,
+      );
       readiness = {
-        'status': SNCEngine.getStatus(localScore),
+        'status': localStatus,
         'readinessScore': localScore,
-        'message': SNCEngine.getNarrativeFeedback(localScore),
-        'contextDetail': SNCEngine.getContextualNarrative(
-          baseScore, localScore, widget.payload.wellness,
-        ),
+        'message': localNarrative,
+        'contextDetail': localContext,
+        'lapses': lapses,
+        'slowest': slowest,
+        'fastest': fastest,
+        'meanLatency': meanLatency,
+        'totalTrials': validLogs.length,
         'isOfflineMode': true,
       };
     }
@@ -420,6 +434,11 @@ class _ProcessingScreenState extends State<_ProcessingScreen>
         'status':        readiness['status'] ?? '',
         'message':       readiness['message'] ?? '',
         'contextDetail': readiness['contextDetail'] ?? '',
+        'lapses':        readiness['lapses'] ?? 0,
+        'slowest':       readiness['slowest'] ?? 0,
+        'fastest':       readiness['fastest'] ?? 0,
+        'meanLatency':   readiness['meanLatency'] ?? 0,
+        'totalTrials':   readiness['totalTrials'] ?? 0,
         'isOfflineMode': readiness['isOfflineMode'] ?? false,
         'timestamp':     DateTime.now().toIso8601String(),
       });
@@ -432,25 +451,56 @@ class _ProcessingScreenState extends State<_ProcessingScreen>
   Future<Map<String, dynamic>> _performCompleteSync(BiometricPayload payload) async {
     const token = "imed-sport-token-mock";
 
-    // Siempre calculamos el contexto localmente
+    final validLogs = payload.pvtLog.where((t) => t > 100).toList();
+    final int lapses = validLogs.where((t) => t > 500).length;
+    final int slowest = validLogs.isEmpty ? 0 : validLogs.reduce((a, b) => a > b ? a : b);
+    final int fastest = validLogs.isEmpty ? 0 : validLogs.reduce((a, b) => a < b ? a : b);
+    final int meanLatency = validLogs.isEmpty ? 0 : (validLogs.reduce((a, b) => a + b) / validLogs.length).round();
+
+    // Siempre calculamos el contexto localmente con soporte de lapses
     final localScore = SNCEngine.calculateIRIFromPayload(payload);
     final baseScore = SNCEngine.calculateIRI(0.0, payload.pvtLog);
+    final localStatus = SNCEngine.getStatus(localScore, lapses: lapses);
+    final localNarrative = SNCEngine.getNarrativeFeedback(localScore, lapses: lapses, slowestMs: slowest);
     final localContext = SNCEngine.getContextualNarrative(
       baseScore, localScore, payload.wellness,
+      lapses: lapses, slowestMs: slowest,
     );
 
     // Recuperar perfil real del deportista
     final userProfile = await widget.isar.collection<UserProfile>().where().findFirst();
     if (userProfile != null && userProfile.tenantId == null && userProfile.associationCode != null) {
       try {
-        final querySnap = await FirebaseFirestore.instance
+        var querySnap = await FirebaseFirestore.instance
             .collection('tenants')
             .where('associationCode', isEqualTo: userProfile.associationCode)
             .limit(1)
             .get()
             .timeout(const Duration(seconds: 4));
+        if (querySnap.docs.isEmpty) {
+          final c = userProfile.associationCode!;
+          final List<String> variations = [];
+          if (c.contains('0')) variations.add(c.replaceAll('0', 'O'));
+          if (c.contains('O')) variations.add(c.replaceAll('O', '0'));
+          for (final alt in variations) {
+            try {
+              final altSnap = await FirebaseFirestore.instance
+                  .collection('tenants')
+                  .where('associationCode', isEqualTo: alt)
+                  .limit(1)
+                  .get()
+                  .timeout(const Duration(seconds: 3));
+              if (altSnap.docs.isNotEmpty) {
+                querySnap = altSnap;
+                break;
+              }
+            } catch (_) {}
+          }
+        }
         if (querySnap.docs.isNotEmpty) {
           userProfile.tenantId = querySnap.docs[0].id;
+          final actualCode = querySnap.docs[0].data()['associationCode'] as String?;
+          if (actualCode != null) userProfile.associationCode = actualCode;
           await widget.isar.writeTxn(() => widget.isar.collection<UserProfile>().put(userProfile));
         }
       } catch (e) {
@@ -476,16 +526,26 @@ class _ProcessingScreenState extends State<_ProcessingScreen>
         readiness['isOfflineMode'] = false;
         // Inyectar el contexto local en la respuesta del servidor
         readiness['contextDetail'] = localContext;
+        readiness['lapses'] = lapses;
+        readiness['slowest'] = slowest;
+        readiness['fastest'] = fastest;
+        readiness['meanLatency'] = meanLatency;
+        readiness['totalTrials'] = validLogs.length;
         return readiness;
       }
     }
 
     // Servidor offline: IRI con contexto del cuestionario como fuente de verdad
     return {
-      'status': SNCEngine.getStatus(localScore),
+      'status': localStatus,
       'readinessScore': localScore,
-      'message': SNCEngine.getNarrativeFeedback(localScore),
+      'message': localNarrative,
       'contextDetail': localContext,
+      'lapses': lapses,
+      'slowest': slowest,
+      'fastest': fastest,
+      'meanLatency': meanLatency,
+      'totalTrials': validLogs.length,
       'isOfflineMode': true,
     };
   }

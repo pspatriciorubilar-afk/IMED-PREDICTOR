@@ -64,6 +64,7 @@ class _ReadinessDashboardScreenState extends State<ReadinessDashboardScreen> {
   Color _getStatusColor() {
     if (status == 'VERDE') return voltGreen;
     if (status == 'AMARILLO') return Colors.amberAccent;
+    if (status == 'NARANJA') return Colors.orangeAccent;
     if (status == 'ROJO') return errorRed;
     return cianElectric; // Calibrating
   }
@@ -243,7 +244,13 @@ class _ReadinessDashboardScreenState extends State<ReadinessDashboardScreen> {
                     ),
                   ),
                   Text(
-                    status == 'CALIBRATING' ? 'CALIBRANDO' : status,
+                    status == 'CALIBRATING'
+                        ? 'CALIBRANDO'
+                        : (status == 'AMARILLO' && (widget.readinessData['lapses'] ?? 0) > 0)
+                            ? 'FATIGA INCIPIENTE'
+                            : (status == 'NARANJA' && (widget.readinessData['lapses'] ?? 0) >= 2)
+                                ? 'FATIGA EN PROCESO'
+                                : status,
                     textAlign: TextAlign.center,
                     style: TextStyle(color: glowColor, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.5),
                   ),
@@ -259,6 +266,10 @@ class _ReadinessDashboardScreenState extends State<ReadinessDashboardScreen> {
   Widget _buildPvtSessionCard(Color statusColor) {
     final isOffline = widget.readinessData['isOfflineMode'] as bool? ?? true;
     final contextDetail = widget.readinessData['contextDetail'] as String? ?? '';
+    final int lapses = widget.readinessData['lapses'] as int? ?? 0;
+    final int slowest = widget.readinessData['slowest'] as int? ?? 0;
+    final int meanLatency = widget.readinessData['meanLatency'] as int? ?? 0;
+    final int totalTrials = widget.readinessData['totalTrials'] as int? ?? 0;
 
     return Container(
       decoration: BoxDecoration(
@@ -301,9 +312,62 @@ class _ReadinessDashboardScreenState extends State<ReadinessDashboardScreen> {
             children: [
               _metricTile('SCORE IRI', '$score / 100', statusColor),
               const SizedBox(width: 12),
-              _metricTile('ESTADO SNC', status == 'CALIBRATING' ? 'CALIBRANDO' : status, statusColor),
+              _metricTile(
+                'ESTADO SNC', 
+                status == 'CALIBRATING' 
+                    ? 'CALIBRANDO' 
+                    : (status == 'AMARILLO' && lapses > 0)
+                        ? 'FATIGA INCIPIENTE'
+                        : status, 
+                statusColor
+              ),
             ],
           ),
+          // Sub-métricas de ensayos PVT (consistencia con el Dashboard Web)
+          if (meanLatency > 0 || totalTrials > 0 || slowest > 0) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _metricTile(
+                  'LAPSOS (>500ms)', 
+                  '$lapses${totalTrials > 0 ? "/$totalTrials" : ""}', 
+                  lapses > 0 ? Colors.amberAccent : voltGreen
+                ),
+                const SizedBox(width: 12),
+                _metricTile('LATENCIA MEDIA', meanLatency > 0 ? '$meanLatency ms' : '--', cianElectric),
+                if (slowest > 0) ...[
+                  const SizedBox(width: 12),
+                  _metricTile('MÁS LENTO', '$slowest ms', slowest > 500 ? Colors.amberAccent : textHigh),
+                ],
+              ],
+            ),
+          ],
+          // Alerta atencional en caso de lapse
+          if (lapses > 0) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amberAccent.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.amberAccent.withOpacity(0.35)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amberAccent, size: 18),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      lapses == 1
+                          ? '🟡 ALERTA PREVENTIVA: Se detectó 1 lapso de atención (${slowest > 0 ? "$slowest ms" : ">500 ms"}). Estado ajustado a Fatiga Incipiente por seguridad del SNC.'
+                          : '🟠 ALERTA CRÍTICA: Se detectaron $lapses lapsos de atención. Fatiga central acumulada en la corteza.',
+                      style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.w600, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (contextDetail.isNotEmpty) ...[
             const SizedBox(height: 16),
             Container(

@@ -630,40 +630,59 @@
 
 
 
-    <!-- ═══ MODAL: NUEVO INQUILINO (SAAS) ═══ -->
+    <!-- ═══ MODAL: NUEVO INQUILINO (SAAS) — SUPER ADMIN ═══ -->
     <div id="saas-tenant-modal" class="modal-overlay hidden">
-      <div class="modal-box glass" style="width:520px; max-width:90vw; padding:32px;">
+      <div class="modal-box glass" style="width:560px; max-width:92vw; padding:32px;">
         <div class="modal-header">
           <div>
-            <div class="panel-label" style="color:var(--blue)">SaaS MANAGEMENT</div>
-            <h2 class="panel-title">Dar de Alta Nuevo Tenant</h2>
+            <div class="panel-label" style="color:var(--blue)">🏢 SUPER ADMIN — SaaS</div>
+            <h2 class="panel-title">Alta de Nuevo Cliente</h2>
+            <p style="font-size:12px;color:#636375;margin:4px 0 0">Equivale a una compra directa. Se crea la cuenta, el tenant y el código de asociación para la app móvil.</p>
           </div>
           <button class="modal-close" onclick="closeTenantModal()">✕</button>
         </div>
-        <form id="saas-tenant-form" onsubmit="saveNewTenant(event)">
-          <div class="form-group">
-            <label class="form-label">IDENTIFICADOR ÚNICO (Subdominio / ID)</label>
-            <input type="text" id="tenant-id-input" class="input-glass w-full" placeholder="ej: colocolo, uchile, clinicamedica" required />
+        <form id="saas-tenant-form" onsubmit="saveNewTenant(event)" style="margin-top:20px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div class="form-group" style="grid-column:1/-1">
+              <label class="form-label">IDENTIFICADOR ÚNICO (ID del tenant)</label>
+              <input type="text" id="tenant-id-input" class="input-glass w-full" placeholder="ej: colocolo, uchile, clinicaestudio" required autocomplete="off" />
+              <div style="font-size:10px;color:#636375;margin-top:4px">Solo letras minúsculas y números, sin espacios.</div>
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label class="form-label">ORGANIZACIÓN / CLIENTE</label>
+              <input type="text" id="tenant-name-input" class="input-glass w-full" placeholder="ej: Club de Deportes Colo-Colo" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">PLAN INICIAL</label>
+              <select id="tenant-plan-input" class="select-glass w-full" required>
+                <option value="TRIAL">Trial — 14 días gratis</option>
+                <option value="BASIC">Básico — $49.000/mes</option>
+                <option value="PRO">PRO — $99.000/mes</option>
+                <option value="ENTERPRISE">Enterprise — Institucional</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">EMAIL DEL ADMINISTRADOR</label>
+              <input type="email" id="tenant-email-input" class="input-glass w-full" placeholder="ej: admin@club.com" required autocomplete="off" />
+            </div>
+            <div class="form-group" style="grid-column:1/-1">
+              <label class="form-label">CONTRASEÑA DE ACCESO (Opcional)</label>
+              <input type="text" id="tenant-password-input" class="input-glass w-full" placeholder="Ej: MiClave2026! (o en blanco para generar automática)" autocomplete="off" />
+              <div style="font-size:10px;color:#636375;margin-top:4px">Puedes definir la clave tú mismo o dejarla vacía para generar una aleatoria segura.</div>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">ORGANIZACIÓN / CLIENTE</label>
-            <input type="text" id="tenant-name-input" class="input-glass w-full" placeholder="ej: Club de Deportes Colo-Colo" required />
+
+          <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:10px;padding:14px;margin:16px 0;font-size:12px;color:#A1A1AA;line-height:1.6">
+            🔑 Credenciales de acceso para el cliente.<br>
+            📱 El sistema creará un <strong style="color:#00E5FF">código de asociación</strong> de 6 dígitos para vincular la app móvil.<br>
+            📋 Al terminar verás todos los datos para enviarle al cliente.
           </div>
-          <div class="form-group">
-            <label class="form-label">PLAN INICIAL</label>
-            <select id="tenant-plan-input" class="select-glass w-full" required>
-              <option value="TRIAL">Prueba (Trial 14 días)</option>
-              <option value="BASIC">Básico (Mensual)</option>
-              <option value="PRO">Profesional PRO (Mensual)</option>
-              <option value="ENTERPRISE">Institucional Enterprise</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">EMAIL RESPONSABLE / ADMINISTRADOR</label>
-            <input type="email" id="tenant-email-input" class="input-glass w-full" placeholder="ej: admin@club.com" required />
-          </div>
-          <button type="submit" class="btn-primary w-full" style="margin-top:20px; background:linear-gradient(135deg, var(--blue), #0077ff); border:none">
-            🚀 Crear y Aprovisionar Tenant
+
+          <div id="saas-tenant-error" style="color:#FF4D4D;font-size:13px;background:rgba(255,77,77,0.08);padding:10px 14px;border-radius:8px;border:1px solid rgba(255,77,77,0.2);display:none;margin-bottom:12px"></div>
+          <div id="saas-tenant-success" style="color:#32D74B;font-size:13px;background:rgba(50,215,75,0.08);padding:14px;border-radius:8px;border:1px solid rgba(50,215,75,0.2);display:none;margin-bottom:12px"></div>
+
+          <button type="submit" class="btn-primary w-full" style="background:linear-gradient(135deg,#0077ff,#BF5AF2);border:none;font-weight:700;letter-spacing:0.5px">
+            🚀 Crear y Aprovisionar Cliente
           </button>
         </form>
       </div>
@@ -927,12 +946,12 @@
     </div>
   </div>
 
-  <script src="app_v411_final.js?v=4.26.0"></script>
+  <script src="app_v411_final.js?v=4.33.0"></script>
 
   <!-- ─── El botón de cerrar sesión se inyecta desde auth.js ─── -->
 
   </div><!-- /app-shell -->
 
-  <script src="auth.js?v=4.24.0"></script>
+  <script src="auth.js?v=4.33.0"></script>
 </body>
 </html>
