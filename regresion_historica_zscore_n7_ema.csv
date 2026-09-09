@@ -1,0 +1,288 @@
+doc_id,athlete_id,athlete_name,date,tau_today_ms,lapses,tau_history_n,old_baseline_mean,old_baseline_sd,old_zscore,old_status,new_mode,new_baseline_mean,new_baseline_sd,new_sigma_capped,new_zscore,new_status,delta_z,status_changed
+patricio_rubilar_45_2026-05-10,patricio_rubilar_45,patricio rubilar,2026-05-10,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+patricio_rubilar_45_2026-05-11,patricio_rubilar_45,patricio rubilar,2026-05-11,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+patricio_rubilar_45_2026-05-12,patricio_rubilar_45,patricio rubilar,2026-05-12,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+patricio_rubilar_45_2026-05-13,patricio_rubilar_45,patricio rubilar,2026-05-13,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+patricio_rubilar_45_2026-05-14,patricio_rubilar_45,patricio rubilar,2026-05-14,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+patricio_rubilar_45_2026-05-16,patricio_rubilar_45,patricio rubilar,2026-05-16,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+patricio_rubilar_45_2026-05-18,patricio_rubilar_45,patricio rubilar,2026-05-18,40.78,0,0,,0,,GREEN,CALIBRATING,,0,False,,GREEN,,False
+patricio_rubilar_45_2026-05-19,patricio_rubilar_45,patricio rubilar,2026-05-19,46.8,0,1,,1,,GREEN,CALIBRATING,,1,False,,GREEN,,False
+patricio_rubilar_45_2026-06-10,patricio_rubilar_45,patricio rubilar,2026-06-10,45.28,0,2,,2,,GREEN,CALIBRATING,,2,False,,GREEN,,False
+patricio_rubilar_45_2026-06-11,patricio_rubilar_45,patricio rubilar,2026-06-11,59.1,0,3,,3,,YELLOW,SMA_PROVISIONAL,44.29,11.79,False,1.257,YELLOW,,False
+patricio_rubilar_45_2026-06-12,patricio_rubilar_45,Patricio Rubilar,2026-06-12,45.91,0,4,,4,,GREEN,SMA_PROVISIONAL,47.99,11.97,False,-0.174,YELLOW,,True
+patricio_rubilar_45_2026-06-13,patricio_rubilar_45,Patricio Rubilar,2026-06-13,47.54,0,5,47.57,12.08,-0.003,GREEN,SMA_PROVISIONAL,47.57,11.1,False,-0.003,GREEN,0.0,False
+patricio_rubilar_45_2026-06-14,patricio_rubilar_45,Patricio Rubilar,2026-06-14,42.97,0,6,47.57,11.46,-0.401,GREEN,SMA_PROVISIONAL,47.57,10.38,False,-0.443,GREEN,-0.042,False
+patricio_rubilar_45_2026-06-15,patricio_rubilar_45,Patricio Rubilar,2026-06-15,55.81,1,7,46.91,11.0,0.809,YELLOW,EMA_N7_CAPPED,46.13,9.89,False,0.979,YELLOW,0.17,False
+patricio_rubilar_45_2026-06-16,patricio_rubilar_45,Patricio Rubilar,2026-06-16,53.93,0,8,48.02,10.8,0.547,YELLOW,EMA_N7_CAPPED,49.81,9.94,False,0.414,YELLOW,-0.133,False
+patricio_rubilar_45_2026-06-17,patricio_rubilar_45,Patricio Rubilar,2026-06-17,31.01,0,9,48.68,10.49,-1.684,GREEN,EMA_N7_CAPPED,51.18,10.01,False,-2.015,GREEN,-0.331,False
+patricio_rubilar_45_2026-06-18,patricio_rubilar_45,Patricio Rubilar,2026-06-18,31.31,0,10,46.91,11.06,-1.411,GREEN,EMA_N7_CAPPED,44.8,11.61,False,-1.162,GREEN,0.249,False
+patricio_rubilar_45_2026-06-19,patricio_rubilar_45,Patricio Rubilar,2026-06-19,52.0,0,11,45.49,11.35,0.573,GREEN,EMA_N7_CAPPED,39.43,11.83,False,1.062,YELLOW,0.489,True
+patricio_rubilar_45_2026-06-20,patricio_rubilar_45,Patricio Rubilar,2026-06-20,49.22,0,12,46.04,11.1,0.287,GREEN,EMA_N7_CAPPED,43.91,12.08,False,0.439,GREEN,0.152,False
+patricio_rubilar_45_2026-06-23,patricio_rubilar_45,Patricio Rubilar,2026-06-23,41.12,0,13,46.28,10.8,-0.478,GREEN,EMA_N7_CAPPED,45.54,12.14,False,-0.365,GREEN,0.113,False
+patricio_rubilar_45_2026-06-26,patricio_rubilar_45,Patricio Rubilar,2026-06-26,45.9,0,14,45.91,10.56,-0.001,YELLOW,EMA_N7_CAPPED,44.63,12.19,False,0.105,YELLOW,0.106,False
+patricio_rubilar_45_2026-07-23,patricio_rubilar_45,Patricio Rubilar,2026-07-23,34.72,0,15,45.91,10.28,-1.089,GREEN,EMA_N7_CAPPED,44.98,11.57,False,-0.887,GREEN,0.202,False
+patricio_rubilar_45_2026-07-24,patricio_rubilar_45,Patricio Rubilar,2026-07-24,44.36,0,16,45.51,10.52,-0.109,GREEN,EMA_N7_CAPPED,40.26,11.16,False,0.367,GREEN,0.476,False
+patricio_rubilar_45_2026-07-29,patricio_rubilar_45,Patricio Rubilar,2026-07-29,24.61,0,17,45.35,10.52,-1.971,GREEN,EMA_N7_CAPPED,41.71,10.61,False,-1.612,GREEN,0.359,False
+patricio_rubilar_45_2026-07-30,patricio_rubilar_45,Patricio Rubilar,2026-07-30,47.51,0,18,43.97,11.48,0.309,GREEN,EMA_N7_CAPPED,36.74,11.56,False,0.931,GREEN,0.622,False
+patricio_rubilar_45_2026-08-04,patricio_rubilar_45,Patricio Rubilar,2026-08-04,46.4,0,19,43.19,10.95,0.293,GREEN,EMA_N7_CAPPED,40.37,11.2,False,0.538,GREEN,0.245,False
+patricio_rubilar_45_2026-08-05,patricio_rubilar_45,Patricio Rubilar,2026-08-05,52.55,0,20,43.23,10.96,0.851,GREEN,EMA_N7_CAPPED,42.09,11.0,False,0.951,GREEN,0.1,False
+patricio_rubilar_45_2026-08-28,patricio_rubilar_45,Patricio Rubilar,2026-08-28,57.83,1,21,43.56,11.12,1.284,YELLOW,EMA_N7_CAPPED,45.98,11.6,False,1.021,YELLOW,-0.263,False
+gladys_esquivel_31_2026-05-11,gladys_esquivel_31,gladys esquivel,2026-05-11,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-12,gladys_esquivel_31,gladys esquivel,2026-05-12,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-13,gladys_esquivel_31,gladys esquivel,2026-05-13,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-14,gladys_esquivel_31,gladys esquivel,2026-05-14,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-15,gladys_esquivel_31,gladys esquivel,2026-05-15,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-16,gladys_esquivel_31,gladys esquivel,2026-05-16,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-17,gladys_esquivel_31,gladys esquivel,2026-05-17,,1,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-18,gladys_esquivel_31,gladys esquivel,2026-05-18,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-19,gladys_esquivel_31,gladys esquivel,2026-05-19,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-20,gladys_esquivel_31,gladys esquivel,2026-05-20,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+gladys_esquivel_31_2026-05-21,gladys_esquivel_31,Gladys Esquivel,2026-05-21,62.0,1,0,,0,,YELLOW,CALIBRATING,,0,False,,YELLOW,,False
+gladys_esquivel_31_2026-05-25,gladys_esquivel_31,Gladys Esquivel,2026-05-25,37.92,0,1,,1,,GREEN,CALIBRATING,,1,False,,GREEN,,False
+gladys_esquivel_31_2026-05-27,gladys_esquivel_31,Gladys Esquivel,2026-05-27,39.38,0,2,,2,,GREEN,CALIBRATING,,2,False,,GREEN,,False
+gladys_esquivel_31_2026-05-28,gladys_esquivel_31,Gladys Esquivel,2026-05-28,31.74,0,3,,3,,GREEN,SMA_PROVISIONAL,46.43,14.42,False,-1.019,GREEN,,False
+gladys_esquivel_31_2026-05-29,gladys_esquivel_31,Gladys Esquivel,2026-05-29,44.17,0,4,,4,,GREEN,SMA_PROVISIONAL,42.76,14.15,False,0.1,YELLOW,,True
+gladys_esquivel_31_2026-05-30,gladys_esquivel_31,Gladys Esquivel,2026-05-30,46.27,0,5,43.04,13.55,0.238,GREEN,SMA_PROVISIONAL,43.04,13.11,False,0.246,GREEN,0.008,False
+gladys_esquivel_31_2026-06-01,gladys_esquivel_31,Gladys Esquivel,2026-06-01,45.42,0,6,43.58,12.89,0.143,GREEN,SMA_PROVISIONAL,43.58,12.31,False,0.15,GREEN,0.007,False
+gladys_esquivel_31_2026-06-11,gladys_esquivel_31,Gladys Esquivel,2026-06-11,42.91,0,7,43.84,12.3,-0.076,GREEN,EMA_N7_CAPPED,44.68,11.62,False,-0.153,GREEN,-0.077,False
+gladys_esquivel_31_2026-06-12,gladys_esquivel_31,Gladys Esquivel,2026-06-12,25.3,0,8,43.73,11.78,-1.564,GREEN,EMA_N7_CAPPED,42.88,9.63,False,-1.827,GREEN,-0.263,False
+gladys_esquivel_31_2026-06-13,gladys_esquivel_31,Gladys Esquivel,2026-06-13,33.47,0,9,41.68,12.3,-0.667,GREEN,EMA_N7_CAPPED,36.8,10.81,False,-0.308,GREEN,0.359,False
+gladys_esquivel_31_2026-06-14,gladys_esquivel_31,Gladys Esquivel,2026-06-14,34.55,0,10,40.86,12.04,-0.524,GREEN,EMA_N7_CAPPED,35.26,10.95,False,-0.065,GREEN,0.459,False
+gladys_esquivel_31_2026-06-15,gladys_esquivel_31,Gladys Esquivel,2026-06-15,43.03,0,11,40.28,11.73,0.234,GREEN,EMA_N7_CAPPED,35.62,10.8,False,0.686,GREEN,0.452,False
+gladys_esquivel_31_2026-06-16,gladys_esquivel_31,Gladys Esquivel,2026-06-16,47.27,0,12,40.51,11.38,0.594,GREEN,EMA_N7_CAPPED,38.32,10.74,False,0.834,GREEN,0.24,False
+gladys_esquivel_31_2026-06-19,gladys_esquivel_31,Gladys Esquivel,2026-06-19,41.4,0,13,41.03,11.15,0.033,GREEN,EMA_N7_CAPPED,41.41,10.82,False,-0.001,GREEN,-0.034,False
+gladys_esquivel_31_2026-06-24,gladys_esquivel_31,Gladys Esquivel,2026-06-24,28.7,0,14,41.06,10.84,-1.141,GREEN,EMA_N7_CAPPED,41.28,10.62,False,-1.185,GREEN,-0.044,False
+gladys_esquivel_31_2026-06-29,gladys_esquivel_31,Gladys Esquivel,2026-06-29,28.36,0,15,40.24,10.9,-1.09,GREEN,EMA_N7_CAPPED,36.02,10.83,False,-0.707,GREEN,0.383,False
+gladys_esquivel_31_2026-07-06,gladys_esquivel_31,Gladys Esquivel,2026-07-06,60.05,2,16,37.99,9.86,2.237,RED,EMA_N7_CAPPED,33.74,10.53,False,2.499,RED,0.262,False
+gladys_esquivel_31_2026-07-08,gladys_esquivel_31,Gladys Esquivel,2026-07-08,34.74,0,17,39.47,11.01,-0.43,GREEN,EMA_N7_CAPPED,43.0,12.62,False,-0.655,GREEN,-0.225,False
+gladys_esquivel_31_2026-07-11,gladys_esquivel_31,Gladys Esquivel,2026-07-11,38.29,0,18,39.16,11.06,-0.079,GREEN,EMA_N7_CAPPED,40.52,12.61,False,-0.177,GREEN,-0.098,False
+gladys_esquivel_31_2026-07-13,gladys_esquivel_31,Gladys Esquivel,2026-07-13,47.96,0,19,39.6,10.92,0.766,GREEN,EMA_N7_CAPPED,39.95,12.58,False,0.636,GREEN,-0.13,False
+gladys_esquivel_31_2026-07-14,gladys_esquivel_31,Gladys Esquivel,2026-07-14,28.86,0,20,39.85,11.03,-0.996,GREEN,EMA_N7_CAPPED,42.47,12.63,False,-1.077,GREEN,-0.081,False
+gladys_esquivel_31_2026-07-27,gladys_esquivel_31,Gladys Esquivel,2026-07-27,33.55,0,21,38.69,11.17,-0.46,YELLOW,EMA_N7_CAPPED,37.08,13.06,False,-0.27,YELLOW,0.19,False
+gladys_esquivel_31_2026-07-30,gladys_esquivel_31,Gladys Esquivel,2026-07-30,34.67,0,22,37.9,11.11,-0.29,GREEN,EMA_N7_CAPPED,35.83,12.75,False,-0.091,GREEN,0.199,False
+gladys_esquivel_31_2026-07-31,gladys_esquivel_31,Gladys Esquivel,2026-07-31,35.38,0,23,37.35,11.06,-0.178,GREEN,EMA_N7_CAPPED,36.98,12.31,False,-0.13,GREEN,0.048,False
+gladys_esquivel_31_2026-08-14,gladys_esquivel_31,Gladys Esquivel,2026-08-14,48.98,0,24,38.02,10.7,1.024,RED,EMA_N7_CAPPED,35.18,9.91,False,1.393,RED,0.369,False
+maximiliano_gutierrez_16_2026-05-11,maximiliano_gutierrez_16,Maximiliano Gutierrez,2026-05-11,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+maximiliano_gutierrez_16_2026-05-12,maximiliano_gutierrez_16,Maximiliano Gutierrez,2026-05-12,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+maximiliano_gutierrez_16_2026-05-13,maximiliano_gutierrez_16,Maximiliano Gutierrez,2026-05-13,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+maximiliano_gutierrez_16_2026-05-15,maximiliano_gutierrez_16,Maximiliano Gutierrez,2026-05-15,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+maximiliano_gutierrez_16_2026-05-18,maximiliano_gutierrez_16,Maximiliano Gutierrez,2026-05-18,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+maximiliano_gutierrez_16_2026-05-19,maximiliano_gutierrez_16,Maximiliano Gutierrez,2026-05-19,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+maximiliano_gutierrez_16_2026-05-21,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-05-21,41.74,0,0,,0,,GREEN,CALIBRATING,,0,False,,GREEN,,False
+maximiliano_gutierrez_16_2026-05-25,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-05-25,46.81,1,1,,1,,YELLOW,CALIBRATING,,1,False,,YELLOW,,False
+maximiliano_gutierrez_16_2026-05-26,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-05-26,44.6,0,2,,2,,GREEN,CALIBRATING,,2,False,,GREEN,,False
+maximiliano_gutierrez_16_2026-05-27,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-05-27,28.97,0,3,,3,,GREEN,SMA_PROVISIONAL,44.38,11.73,False,-1.314,GREEN,,False
+maximiliano_gutierrez_16_2026-05-28,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-05-28,33.4,0,4,,4,,GREEN,SMA_PROVISIONAL,40.53,12.01,False,-0.593,GREEN,,False
+maximiliano_gutierrez_16_2026-06-03,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-06-03,34.43,0,5,39.1,12.28,-0.381,GREEN,SMA_PROVISIONAL,39.1,11.38,False,-0.411,GREEN,-0.03,False
+maximiliano_gutierrez_16_2026-06-17,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-06-17,27.25,0,6,38.33,11.73,-0.944,GREEN,SMA_PROVISIONAL,38.33,10.75,False,-1.03,GREEN,-0.086,False
+maximiliano_gutierrez_16_2026-06-19,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-06-19,30.69,0,7,36.74,11.6,-0.522,GREEN,EMA_N7_CAPPED,32.93,10.7,False,-0.209,GREEN,0.313,False
+maximiliano_gutierrez_16_2026-06-22,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-06-22,35.86,0,8,35.99,11.23,-0.011,GREEN,EMA_N7_CAPPED,32.39,10.67,False,0.325,GREEN,0.336,False
+maximiliano_gutierrez_16_2026-06-26,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-06-26,36.55,0,9,35.97,10.79,0.054,GREEN,EMA_N7_CAPPED,33.5,9.84,False,0.31,GREEN,0.256,False
+maximiliano_gutierrez_16_2026-06-29,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-06-29,26.68,0,10,36.03,10.39,-0.9,GREEN,EMA_N7_CAPPED,33.8,9.13,False,-0.78,GREEN,0.12,False
+maximiliano_gutierrez_16_2026-07-01,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-07-01,33.52,0,11,35.18,10.3,-0.161,GREEN,EMA_N7_CAPPED,31.53,9.26,False,0.215,GREEN,0.376,False
+maximiliano_gutierrez_16_2026-07-06,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-07-06,28.88,0,12,35.04,9.98,-0.617,GREEN,EMA_N7_CAPPED,32.27,9.26,False,-0.367,GREEN,0.25,False
+maximiliano_gutierrez_16_2026-07-13,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-07-13,55.06,1,13,34.57,9.79,2.093,RED,EMA_N7_CAPPED,30.73,9.26,False,2.626,RED,0.533,False
+maximiliano_gutierrez_16_2026-07-20,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-07-20,34.63,0,14,36.03,10.59,-0.132,GREEN,EMA_N7_CAPPED,39.42,11.58,False,-0.413,GREEN,-0.281,False
+maximiliano_gutierrez_16_2026-07-29,maximiliano_gutierrez_16,maximiliano Gutierrez,2026-07-29,40.67,0,15,35.94,10.31,0.459,YELLOW,EMA_N7_CAPPED,37.99,11.47,False,0.233,YELLOW,-0.226,False
+ronald_cartes_16_2026-05-12,ronald_cartes_16,Ronald Cartes,2026-05-12,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-13,ronald_cartes_16,Ronald Cartes,2026-05-13,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-14,ronald_cartes_16,Ronald Cartes,2026-05-14,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-15,ronald_cartes_16,Ronald Cartes,2026-05-15,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-16,ronald_cartes_16,Ronald Cartes,2026-05-16,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-17,ronald_cartes_16,Ronald Cartes,2026-05-17,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-18,ronald_cartes_16,Ronald Cartes,2026-05-18,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-19,ronald_cartes_16,Ronald Cartes,2026-05-19,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-20,ronald_cartes_16,Ronald Cartes,2026-05-20,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+ronald_cartes_16_2026-05-21,ronald_cartes_16,Ronald Cartes,2026-05-21,52.0,0,0,,0,,GREEN,CALIBRATING,,0,False,,GREEN,,False
+ronald_cartes_16_2026-05-22,ronald_cartes_16,Ronald Cartes,2026-05-22,44.53,0,1,,1,,GREEN,CALIBRATING,,1,False,,GREEN,,False
+ronald_cartes_16_2026-05-23,ronald_cartes_16,Ronald Cartes,2026-05-23,47.99,0,2,,2,,GREEN,CALIBRATING,,2,False,,GREEN,,False
+ronald_cartes_16_2026-05-24,ronald_cartes_16,Ronald Cartes,2026-05-24,35.59,0,3,,3,,GREEN,SMA_PROVISIONAL,48.17,11.86,False,-1.061,GREEN,,False
+ronald_cartes_16_2026-05-25,ronald_cartes_16,Ronald Cartes,2026-05-25,50.18,0,4,,4,,GREEN,SMA_PROVISIONAL,45.03,11.7,False,0.44,GREEN,,False
+ronald_cartes_16_2026-05-26,ronald_cartes_16,Ronald Cartes,2026-05-26,45.74,0,5,46.06,11.99,-0.027,GREEN,SMA_PROVISIONAL,46.06,10.97,False,-0.029,GREEN,-0.002,False
+ronald_cartes_16_2026-05-27,ronald_cartes_16,Ronald Cartes,2026-05-27,41.11,0,6,46.0,11.37,-0.43,GREEN,SMA_PROVISIONAL,46.0,10.27,False,-0.477,GREEN,-0.047,False
+ronald_cartes_16_2026-05-28,ronald_cartes_16,Ronald Cartes,2026-05-28,49.1,0,7,45.31,10.93,0.347,GREEN,EMA_N7_CAPPED,44.36,9.8,False,0.483,GREEN,0.136,False
+ronald_cartes_16_2026-05-29,ronald_cartes_16,Ronald Cartes,2026-05-29,32.63,0,8,45.78,10.51,-1.251,GREEN,EMA_N7_CAPPED,45.66,9.61,False,-1.355,GREEN,-0.104,False
+ronald_cartes_16_2026-05-30,ronald_cartes_16,Ronald Cartes,2026-05-30,40.04,0,9,44.32,10.67,-0.401,GREEN,EMA_N7_CAPPED,41.27,10.34,False,-0.119,GREEN,0.282,False
+ronald_cartes_16_2026-05-31,ronald_cartes_16,Ronald Cartes,2026-05-31,40.45,0,10,43.89,10.34,-0.333,GREEN,EMA_N7_CAPPED,40.23,10.22,False,0.022,GREEN,0.355,False
+ronald_cartes_16_2026-06-01,ronald_cartes_16,Ronald Cartes,2026-06-01,30.26,0,11,43.58,10.02,-1.329,GREEN,EMA_N7_CAPPED,41.02,9.98,False,-1.078,GREEN,0.251,False
+ronald_cartes_16_2026-06-02,ronald_cartes_16,Ronald Cartes,2026-06-02,41.5,0,12,42.47,10.22,-0.095,GREEN,EMA_N7_CAPPED,37.04,10.23,False,0.436,GREEN,0.531,False
+ronald_cartes_16_2026-06-03,ronald_cartes_16,Ronald Cartes,2026-06-03,35.29,0,13,42.39,9.91,-0.717,GREEN,EMA_N7_CAPPED,38.37,10.04,False,-0.307,GREEN,0.41,False
+ronald_cartes_16_2026-06-04,ronald_cartes_16,Ronald Cartes,2026-06-04,35.58,0,14,41.89,9.77,-0.646,GREEN,EMA_N7_CAPPED,37.69,10.08,False,-0.209,GREEN,0.437,False
+ronald_cartes_16_2026-06-05,ronald_cartes_16,Ronald Cartes,2026-06-05,37.29,0,15,41.47,9.61,-0.435,GREEN,EMA_N7_CAPPED,36.14,9.34,False,0.123,GREEN,0.558,False
+ronald_cartes_16_2026-06-07,ronald_cartes_16,Ronald Cartes,2026-06-07,47.86,0,16,40.49,9.31,0.792,GREEN,EMA_N7_CAPPED,36.91,9.23,False,1.187,YELLOW,0.395,True
+ronald_cartes_16_2026-06-08,ronald_cartes_16,Ronald Cartes,2026-06-08,46.06,0,17,40.71,9.41,0.569,GREEN,EMA_N7_CAPPED,40.76,9.79,False,0.541,GREEN,-0.028,False
+ronald_cartes_16_2026-06-09,ronald_cartes_16,Ronald Cartes,2026-06-09,46.23,0,18,40.58,9.35,0.605,GREEN,EMA_N7_CAPPED,42.12,10.08,False,0.408,GREEN,-0.197,False
+ronald_cartes_16_2026-06-10,ronald_cartes_16,Ronald Cartes,2026-06-10,44.68,0,19,41.29,9.34,0.363,GREEN,EMA_N7_CAPPED,44.11,9.72,False,0.059,GREEN,-0.304,False
+ronald_cartes_16_2026-06-11,ronald_cartes_16,Ronald Cartes,2026-06-11,48.76,0,20,40.92,9.15,0.857,GREEN,EMA_N7_CAPPED,44.0,9.77,False,0.487,GREEN,-0.37,False
+ronald_cartes_16_2026-06-12,ronald_cartes_16,Ronald Cartes,2026-06-12,37.43,0,21,41.12,9.25,-0.399,GREEN,EMA_N7_CAPPED,45.68,9.65,False,-0.855,GREEN,-0.456,False
+ronald_cartes_16_2026-06-13,ronald_cartes_16,Ronald Cartes,2026-06-13,44.11,0,22,40.88,9.29,0.348,GREEN,EMA_N7_CAPPED,42.88,9.49,False,0.13,GREEN,-0.218,False
+ronald_cartes_16_2026-06-14,ronald_cartes_16,Ronald Cartes,2026-06-14,21.99,0,23,40.54,9.12,-2.034,GREEN,EMA_N7_CAPPED,43.83,9.18,False,-2.379,GREEN,-0.345,False
+ronald_cartes_16_2026-06-15,ronald_cartes_16,Ronald Cartes,2026-06-15,32.6,0,24,39.84,9.88,-0.732,GREEN,EMA_N7_CAPPED,36.1,11.47,False,-0.305,GREEN,0.427,False
+ronald_cartes_16_2026-06-16,ronald_cartes_16,Ronald Cartes,2026-06-16,43.05,0,25,39.34,10.01,0.371,GREEN,EMA_N7_CAPPED,34.88,11.61,False,0.704,GREEN,0.333,False
+ronald_cartes_16_2026-06-19,ronald_cartes_16,Ronald Cartes,2026-06-19,35.31,0,26,39.51,10.04,-0.419,GREEN,EMA_N7_CAPPED,37.66,11.44,False,-0.206,GREEN,0.213,False
+ronald_cartes_16_2026-06-20,ronald_cartes_16,Ronald Cartes,2026-06-20,45.45,0,27,39.85,9.86,0.568,GREEN,EMA_N7_CAPPED,37.04,11.28,False,0.745,GREEN,0.177,False
+ronald_cartes_16_2026-06-21,ronald_cartes_16,Ronald Cartes,2026-06-21,30.77,0,28,40.11,9.93,-0.941,GREEN,EMA_N7_CAPPED,39.43,10.96,False,-0.79,GREEN,0.151,False
+ronald_cartes_16_2026-06-23,ronald_cartes_16,Ronald Cartes,2026-06-23,32.64,0,29,39.81,10.09,-0.71,GREEN,EMA_N7_CAPPED,36.73,11.13,False,-0.367,GREEN,0.343,False
+ronald_cartes_16_2026-06-24,ronald_cartes_16,Ronald Cartes,2026-06-24,21.84,0,30,39.62,10.18,-1.746,GREEN,EMA_N7_CAPPED,34.21,10.78,False,-1.147,GREEN,0.599,False
+ronald_cartes_16_2026-06-25,ronald_cartes_16,Ronald Cartes,2026-06-25,37.4,0,31,38.59,10.92,-0.109,GREEN,EMA_N7_CAPPED,30.4,10.8,False,0.648,GREEN,0.757,False
+ronald_cartes_16_2026-06-26,ronald_cartes_16,Ronald Cartes,2026-06-26,27.04,0,32,37.89,10.69,-1.015,GREEN,EMA_N7_CAPPED,33.36,10.81,False,-0.585,GREEN,0.43,False
+ronald_cartes_16_2026-06-27,ronald_cartes_16,Ronald Cartes,2026-06-27,31.1,0,33,36.62,10.76,-0.513,GREEN,EMA_N7_CAPPED,30.77,10.64,False,0.031,GREEN,0.544,False
+ronald_cartes_16_2026-06-29,ronald_cartes_16,Ronald Cartes,2026-06-29,35.51,0,34,35.61,10.57,-0.01,GREEN,EMA_N7_CAPPED,31.38,10.62,False,0.389,GREEN,0.399,False
+ronald_cartes_16_2026-07-01,ronald_cartes_16,Ronald Cartes,2026-07-01,34.19,0,35,35.0,10.35,-0.078,GREEN,EMA_N7_CAPPED,32.11,9.65,False,0.216,GREEN,0.294,False
+ronald_cartes_16_2026-07-02,ronald_cartes_16,Ronald Cartes,2026-07-02,38.67,0,36,34.03,9.82,0.473,GREEN,EMA_N7_CAPPED,32.93,9.71,False,0.592,GREEN,0.119,False
+ronald_cartes_16_2026-07-03,ronald_cartes_16,Ronald Cartes,2026-07-03,39.48,0,37,34.11,9.84,0.545,GREEN,EMA_N7_CAPPED,34.41,9.97,False,0.509,GREEN,-0.036,False
+ronald_cartes_16_2026-07-04,ronald_cartes_16,Ronald Cartes,2026-07-04,44.75,0,38,33.8,9.65,1.135,YELLOW,EMA_N7_CAPPED,36.95,9.39,False,0.831,GREEN,-0.304,True
+ronald_cartes_16_2026-07-06,ronald_cartes_16,Ronald Cartes,2026-07-06,39.92,0,39,35.32,9.5,0.484,YELLOW,EMA_N7_CAPPED,39.17,9.88,False,0.076,YELLOW,-0.408,False
+ronald_cartes_16_2026-07-07,ronald_cartes_16,Ronald Cartes,2026-07-07,43.13,0,40,35.81,9.53,0.769,GREEN,EMA_N7_CAPPED,39.63,9.4,False,0.372,GREEN,-0.397,False
+ronald_cartes_16_2026-07-08,ronald_cartes_16,Ronald Cartes,2026-07-08,37.38,0,41,35.81,9.53,0.164,GREEN,EMA_N7_CAPPED,41.07,9.19,False,-0.402,GREEN,-0.566,False
+ronald_cartes_16_2026-07-09,ronald_cartes_16,Ronald Cartes,2026-07-09,27.29,0,42,35.95,9.53,-0.908,GREEN,EMA_N7_CAPPED,39.72,9.12,False,-1.362,GREEN,-0.454,False
+ronald_cartes_16_2026-07-10,ronald_cartes_16,Ronald Cartes,2026-07-10,23.97,0,43,34.74,9.43,-1.142,RED,EMA_N7_CAPPED,35.59,9.81,False,-1.185,RED,-0.043,False
+ronald_cartes_16_2026-07-11,ronald_cartes_16,Ronald Cartes,2026-07-11,45.74,1,44,34.29,9.7,1.181,YELLOW,EMA_N7_CAPPED,31.56,10.8,False,1.313,YELLOW,0.132,False
+ronald_cartes_16_2026-07-12,ronald_cartes_16,Ronald Cartes,2026-07-12,43.33,0,45,35.16,10.01,0.816,GREEN,EMA_N7_CAPPED,36.78,11.16,False,0.587,GREEN,-0.229,False
+ronald_cartes_16_2026-07-13,ronald_cartes_16,Ronald Cartes,2026-07-13,38.6,0,46,36.59,9.63,0.208,GREEN,EMA_N7_CAPPED,38.84,11.06,False,-0.021,GREEN,-0.229,False
+ronald_cartes_16_2026-07-14,ronald_cartes_16,Ronald Cartes,2026-07-14,24.19,0,47,36.67,9.64,-1.295,GREEN,EMA_N7_CAPPED,38.91,11.03,False,-1.334,GREEN,-0.039,False
+ronald_cartes_16_2026-07-15,ronald_cartes_16,Ronald Cartes,2026-07-15,33.54,0,48,36.48,9.81,-0.3,GREEN,EMA_N7_CAPPED,33.48,11.42,False,0.006,GREEN,0.306,False
+ronald_cartes_16_2026-07-16,ronald_cartes_16,Ronald Cartes,2026-07-16,37.12,0,49,36.65,9.75,0.049,GREEN,EMA_N7_CAPPED,33.0,11.37,False,0.362,GREEN,0.313,False
+ronald_cartes_16_2026-07-17,ronald_cartes_16,Ronald Cartes,2026-07-17,27.22,0,50,36.75,9.75,-0.978,GREEN,EMA_N7_CAPPED,34.28,11.14,False,-0.634,GREEN,0.344,False
+ronald_cartes_16_2026-07-18,ronald_cartes_16,Ronald Cartes,2026-07-18,31.64,0,51,36.29,9.97,-0.466,GREEN,EMA_N7_CAPPED,32.88,10.82,False,-0.114,GREEN,0.352,False
+ronald_cartes_16_2026-07-23,ronald_cartes_16,Ronald Cartes,2026-07-23,43.13,0,52,35.82,10.0,0.731,GREEN,EMA_N7_CAPPED,32.33,10.22,False,1.057,YELLOW,0.326,True
+ronald_cartes_16_2026-07-24,ronald_cartes_16,Ronald Cartes,2026-07-24,44.77,0,53,36.06,10.1,0.862,YELLOW,EMA_N7_CAPPED,35.88,10.2,False,0.872,YELLOW,0.01,False
+ronald_cartes_16_2026-07-26,ronald_cartes_16,Ronald Cartes,2026-07-26,52.12,1,54,36.06,10.1,1.589,ORANGE,EMA_N7_CAPPED,38.28,10.7,False,1.293,YELLOW,-0.296,True
+ronald_cartes_16_2026-07-27,ronald_cartes_16,Ronald Cartes,2026-07-27,43.14,0,55,36.88,10.69,0.586,GREEN,EMA_N7_CAPPED,43.58,11.17,False,-0.04,GREEN,-0.626,False
+ronald_cartes_16_2026-07-28,ronald_cartes_16,Ronald Cartes,2026-07-28,38.6,0,56,36.88,10.69,0.161,RED,EMA_N7_CAPPED,43.6,11.08,False,-0.451,RED,-0.612,False
+ronald_cartes_16_2026-07-29,ronald_cartes_16,Ronald Cartes,2026-07-29,35.64,0,57,36.96,10.7,-0.123,GREEN,EMA_N7_CAPPED,41.37,11.05,False,-0.518,GREEN,-0.395,False
+ronald_cartes_16_2026-07-30,ronald_cartes_16,Ronald Cartes,2026-07-30,39.93,0,58,37.52,10.46,0.231,GREEN,EMA_N7_CAPPED,39.58,10.24,False,0.034,GREEN,-0.197,False
+ronald_cartes_16_2026-07-31,ronald_cartes_16,Ronald Cartes,2026-07-31,29.39,0,59,38.58,9.96,-0.923,GREEN,EMA_N7_CAPPED,40.27,9.67,False,-1.124,GREEN,-0.201,False
+ronald_cartes_16_2026-08-01,ronald_cartes_16,Ronald Cartes,2026-08-01,44.46,1,60,37.49,10.0,0.697,YELLOW,EMA_N7_CAPPED,36.54,10.47,False,0.757,YELLOW,0.06,False
+ronald_cartes_16_2026-08-03,ronald_cartes_16,Ronald Cartes,2026-08-03,20.0,0,61,37.57,10.04,-1.75,YELLOW,EMA_N7_CAPPED,39.67,10.45,False,-1.882,YELLOW,-0.132,False
+ronald_cartes_16_2026-08-04,ronald_cartes_16,Ronald Cartes,2026-08-04,24.37,0,62,36.33,10.76,-1.111,GREEN,EMA_N7_CAPPED,32.35,11.15,False,-0.715,GREEN,0.396,False
+ronald_cartes_16_2026-08-05,ronald_cartes_16,Ronald Cartes,2026-08-05,27.89,0,63,36.34,10.75,-0.786,YELLOW,EMA_N7_CAPPED,29.33,11.3,False,-0.128,YELLOW,0.658,False
+ronald_cartes_16_2026-08-06,ronald_cartes_16,Ronald Cartes,2026-08-06,20.0,0,64,35.96,10.9,-1.465,GREEN,EMA_N7_CAPPED,28.68,11.21,False,-0.774,GREEN,0.691,False
+ronald_cartes_16_2026-08-07,ronald_cartes_16,Ronald Cartes,2026-08-07,23.95,0,65,34.82,11.45,-0.95,GREEN,EMA_N7_CAPPED,25.85,11.63,False,-0.164,GREEN,0.786,False
+ronald_cartes_16_2026-08-08,ronald_cartes_16,Ronald Cartes,2026-08-08,35.31,0,66,34.6,11.58,0.061,GREEN,EMA_N7_CAPPED,24.67,11.06,False,0.962,GREEN,0.901,False
+ronald_cartes_16_2026-08-09,ronald_cartes_16,Ronald Cartes,2026-08-09,46.36,0,67,34.85,11.56,0.996,GREEN,EMA_N7_CAPPED,29.13,11.34,False,1.519,ORANGE,0.523,True
+ronald_cartes_16_2026-08-10,ronald_cartes_16,Ronald Cartes,2026-08-10,37.64,0,68,35.06,11.71,0.22,GREEN,EMA_N7_CAPPED,33.96,11.66,False,0.315,GREEN,0.095,False
+ronald_cartes_16_2026-08-11,ronald_cartes_16,Ronald Cartes,2026-08-11,27.11,0,69,34.59,11.5,-0.65,YELLOW,EMA_N7_CAPPED,35.46,11.54,False,-0.724,YELLOW,-0.074,False
+ronald_cartes_16_2026-08-12,ronald_cartes_16,Ronald Cartes,2026-08-12,39.22,0,70,32.92,10.81,0.583,GREEN,EMA_N7_CAPPED,32.71,11.4,False,0.571,GREEN,-0.012,False
+ronald_cartes_16_2026-08-13,ronald_cartes_16,Ronald Cartes,2026-08-13,32.01,0,71,32.66,10.65,-0.061,GREEN,EMA_N7_CAPPED,34.6,11.57,False,-0.224,GREEN,-0.163,False
+ronald_cartes_16_2026-08-14,ronald_cartes_16,Ronald Cartes,2026-08-14,38.06,0,72,32.22,10.55,0.554,YELLOW,EMA_N7_CAPPED,33.89,10.65,False,0.392,YELLOW,-0.162,False
+ronald_cartes_16_2026-08-16,ronald_cartes_16,Ronald Cartes,2026-08-16,26.9,0,73,32.38,10.61,-0.517,GREEN,EMA_N7_CAPPED,35.91,9.96,False,-0.904,GREEN,-0.387,False
+ronald_cartes_16_2026-08-17,ronald_cartes_16,Ronald Cartes,2026-08-17,45.62,0,74,31.51,10.51,1.342,YELLOW,EMA_N7_CAPPED,33.3,10.4,False,1.185,YELLOW,-0.157,False
+ronald_cartes_16_2026-08-18,ronald_cartes_16,Ronald Cartes,2026-08-18,37.9,0,75,32.59,10.95,0.485,GREEN,EMA_N7_CAPPED,37.18,10.32,False,0.07,GREEN,-0.415,False
+ronald_cartes_16_2026-08-19,ronald_cartes_16,Ronald Cartes,2026-08-19,34.0,0,76,32.16,10.66,0.173,GREEN,EMA_N7_CAPPED,36.92,10.33,False,-0.282,GREEN,-0.455,False
+ronald_cartes_16_2026-08-20,ronald_cartes_16,Ronald Cartes,2026-08-20,38.92,0,77,33.09,10.27,0.568,YELLOW,EMA_N7_CAPPED,36.49,9.93,False,0.245,YELLOW,-0.323,False
+ronald_cartes_16_2026-08-21,ronald_cartes_16,Ronald Cartes,2026-08-21,45.18,0,78,34.06,10.12,1.099,YELLOW,EMA_N7_CAPPED,36.99,9.92,False,0.826,GREEN,-0.273,True
+ronald_cartes_16_2026-08-22,ronald_cartes_16,Ronald Cartes,2026-08-22,41.64,0,79,35.21,10.29,0.625,GREEN,EMA_N7_CAPPED,40.15,10.14,False,0.147,GREEN,-0.478,False
+ronald_cartes_16_2026-08-24,ronald_cartes_16,Ronald Cartes,2026-08-24,27.36,0,80,36.65,9.71,-0.957,GREEN,EMA_N7_CAPPED,40.13,10.2,False,-1.252,GREEN,-0.295,False
+ronald_cartes_16_2026-08-25,ronald_cartes_16,Ronald Cartes,2026-08-25,29.58,0,81,36.88,9.5,-0.768,GREEN,EMA_N7_CAPPED,36.57,10.14,False,-0.69,GREEN,0.078,False
+ronald_cartes_16_2026-08-26,ronald_cartes_16,Ronald Cartes,2026-08-26,26.81,0,82,36.5,9.64,-1.006,GREEN,EMA_N7_CAPPED,33.75,10.12,False,-0.685,GREEN,0.321,False
+ronald_cartes_16_2026-08-27,ronald_cartes_16,Ronald Cartes,2026-08-27,49.86,1,83,35.2,9.56,1.534,ORANGE,EMA_N7_CAPPED,31.13,10.51,False,1.783,ORANGE,0.249,False
+ronald_cartes_16_2026-08-28,ronald_cartes_16,Ronald Cartes,2026-08-28,20.0,0,84,36.01,10.09,-1.587,GREEN,EMA_N7_CAPPED,37.93,11.47,False,-1.563,GREEN,0.024,False
+ronald_cartes_16_2026-08-30,ronald_cartes_16,Ronald Cartes,2026-08-30,31.34,0,85,35.54,10.53,-0.398,GREEN,EMA_N7_CAPPED,31.96,12.56,False,-0.049,GREEN,0.349,False
+ronald_cartes_16_2026-08-31,ronald_cartes_16,Ronald Cartes,2026-08-31,20.0,0,86,35.01,10.53,-1.425,GREEN,EMA_N7_CAPPED,31.57,11.95,False,-0.968,GREEN,0.457,False
+ronald_cartes_16_2026-09-01,ronald_cartes_16,Ronald Cartes,2026-09-01,48.77,0,87,34.21,11.04,1.319,YELLOW,EMA_N7_CAPPED,26.82,11.95,False,1.837,ORANGE,0.518,True
+ronald_cartes_16_2026-09-02,ronald_cartes_16,Ronald Cartes,2026-09-02,42.75,0,88,34.93,11.48,0.682,YELLOW,EMA_N7_CAPPED,34.61,13.32,False,0.611,YELLOW,-0.071,False
+ronald_cartes_16_2026-09-03,ronald_cartes_16,Ronald Cartes,2026-09-03,40.52,0,89,35.98,11.44,0.397,YELLOW,EMA_N7_CAPPED,37.32,13.63,False,0.235,YELLOW,-0.162,False
+ronald_cartes_16_2026-09-04,ronald_cartes_16,Ronald Cartes,2026-09-04,24.03,0,90,35.64,11.26,-1.031,GREEN,EMA_N7_CAPPED,39.57,13.46,False,-1.155,GREEN,-0.124,False
+ronald_cartes_16_2026-09-05,ronald_cartes_16,Ronald Cartes,2026-09-05,23.99,0,91,34.72,11.53,-0.93,GREEN,EMA_N7_CAPPED,32.67,12.89,False,-0.673,GREEN,0.257,False
+ronald_cartes_16_2026-09-06,ronald_cartes_16,Ronald Cartes,2026-09-06,43.86,0,92,34.05,11.78,0.833,GREEN,EMA_N7_CAPPED,30.19,12.51,False,1.093,YELLOW,0.26,True
+ronald_cartes_16_2026-09-07,ronald_cartes_16,Ronald Cartes,2026-09-07,37.03,0,93,34.38,11.93,0.222,GREEN,EMA_N7_CAPPED,34.42,12.91,False,0.202,GREEN,-0.02,False
+ronald_cartes_16_2026-09-08,ronald_cartes_16,Ronald Cartes,2026-09-08,34.02,0,94,33.84,11.68,0.016,YELLOW,EMA_N7_CAPPED,36.74,11.75,False,-0.232,YELLOW,-0.248,False
+yanka_caceres_23_2026-05-12,yanka_caceres_23,yanka caceres,2026-05-12,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+yanka_caceres_23_2026-05-13,yanka_caceres_23,yanka caceres,2026-05-13,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+yanka_caceres_23_2026-05-14,yanka_caceres_23,yanka caceres,2026-05-14,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+yanka_caceres_23_2026-05-16,yanka_caceres_23,yanka caceres,2026-05-16,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+yanka_caceres_23_2026-05-17,yanka_caceres_23,yanka caceres,2026-05-17,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+yanka_caceres_23_2026-05-18,yanka_caceres_23,yanka caceres,2026-05-18,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+yanka_caceres_23_2026-05-19,yanka_caceres_23,yanka caceres,2026-05-19,,0,0,,0,,CALIBRATING,CALIBRATING,,0,False,,CALIBRATING,,False
+yanka_caceres_23_2026-05-21,yanka_caceres_23,yanka caceres,2026-05-21,53.27,1,0,,0,,YELLOW,CALIBRATING,,0,False,,YELLOW,,False
+yanka_caceres_23_2026-05-25,yanka_caceres_23,yanka caceres,2026-05-25,41.78,0,1,,1,,GREEN,CALIBRATING,,1,False,,GREEN,,False
+yanka_caceres_23_2026-05-27,yanka_caceres_23,yanka caceres,2026-05-27,41.86,0,2,,2,,GREEN,CALIBRATING,,2,False,,GREEN,,False
+yanka_caceres_23_2026-05-28,yanka_caceres_23,yanka caceres,2026-05-28,50.02,0,3,,3,,GREEN,SMA_PROVISIONAL,45.64,12.35,False,0.355,GREEN,,False
+yanka_caceres_23_2026-05-29,yanka_caceres_23,yanka caceres,2026-05-29,60.66,1,4,,4,,YELLOW,SMA_PROVISIONAL,46.73,11.38,False,1.224,YELLOW,,False
+yanka_caceres_23_2026-06-11,yanka_caceres_23,yanka caceres,2026-06-11,36.65,0,5,49.52,12.39,-1.038,GREEN,SMA_PROVISIONAL,49.52,11.54,False,-1.115,GREEN,-0.077,False
+yanka_caceres_23_2026-06-12,yanka_caceres_23,yanka caceres,2026-06-12,53.51,0,6,47.37,12.33,0.498,GREEN,SMA_PROVISIONAL,47.37,11.56,False,0.531,GREEN,0.033,False
+yanka_caceres_23_2026-06-13,yanka_caceres_23,yanka caceres,2026-06-13,47.67,0,7,48.25,11.88,-0.049,GREEN,EMA_N7_CAPPED,49.17,11.07,False,-0.136,GREEN,-0.087,False
+yanka_caceres_23_2026-06-14,yanka_caceres_23,yanka caceres,2026-06-14,51.97,0,8,48.18,11.37,0.333,GREEN,EMA_N7_CAPPED,48.08,10.92,False,0.356,GREEN,0.023,False
+yanka_caceres_23_2026-06-15,yanka_caceres_23,yanka caceres,2026-06-15,49.09,1,9,48.6,10.97,0.045,YELLOW,EMA_N7_CAPPED,49.45,10.78,False,-0.033,YELLOW,-0.078,False
+yanka_caceres_23_2026-06-16,yanka_caceres_23,yanka caceres,2026-06-16,45.13,0,10,48.65,10.57,-0.333,GREEN,EMA_N7_CAPPED,49.72,10.48,False,-0.438,GREEN,-0.105,False
+yanka_caceres_23_2026-06-19,yanka_caceres_23,yanka caceres,2026-06-19,39.3,0,11,48.33,10.25,-0.881,GREEN,EMA_N7_CAPPED,48.64,10.59,False,-0.882,GREEN,-0.001,False
+yanka_caceres_23_2026-06-24,yanka_caceres_23,yanka caceres,2026-06-24,39.15,0,12,47.58,10.16,-0.829,GREEN,EMA_N7_CAPPED,44.19,10.07,False,-0.501,GREEN,0.328,False
+yanka_caceres_23_2026-06-29,yanka_caceres_23,yanka caceres,2026-06-29,45.36,0,13,46.93,10.05,-0.156,GREEN,EMA_N7_CAPPED,43.25,9.83,False,0.214,GREEN,0.37,False
+yanka_caceres_23_2026-07-06,yanka_caceres_23,yanka caceres,2026-07-06,50.58,0,14,46.82,9.77,0.385,GREEN,EMA_N7_CAPPED,43.7,9.51,False,0.723,GREEN,0.338,False
+yanka_caceres_23_2026-07-08,yanka_caceres_23,yanka caceres,2026-07-08,44.08,0,15,47.07,9.55,-0.313,GREEN,EMA_N7_CAPPED,46.32,9.63,False,-0.233,GREEN,0.08,False
+yanka_caceres_23_2026-07-11,yanka_caceres_23,yanka caceres,2026-07-11,37.79,0,16,46.45,9.45,-0.917,GREEN,EMA_N7_CAPPED,45.4,9.37,False,-0.812,GREEN,0.105,False
+yanka_caceres_23_2026-07-13,yanka_caceres_23,yanka caceres,2026-07-13,38.08,0,17,46.19,9.6,-0.845,GREEN,EMA_N7_CAPPED,42.54,9.42,False,-0.473,GREEN,0.372,False
+yanka_caceres_23_2026-07-27,yanka_caceres_23,yanka caceres,2026-07-27,41.22,0,18,45.94,9.72,-0.485,GREEN,EMA_N7_CAPPED,40.69,9.5,False,0.055,GREEN,0.54,False
+yanka_caceres_23_2026-07-31,yanka_caceres_23,yanka caceres,2026-07-31,41.98,0,19,45.35,9.72,-0.347,GREEN,EMA_N7_CAPPED,40.87,9.46,False,0.117,GREEN,0.464,False
+matias_rodrigo_vera_manriquez_16_2026-06-11,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-11,54.56,0,0,,0,,GREEN,CALIBRATING,,0,False,,GREEN,,False
+matias_rodrigo_vera_manriquez_16_2026-06-12,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-12,50.85,0,1,,1,,GREEN,CALIBRATING,,1,False,,GREEN,,False
+matias_rodrigo_vera_manriquez_16_2026-06-13,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-13,54.73,1,2,,2,,YELLOW,CALIBRATING,,2,False,,YELLOW,,False
+matias_rodrigo_vera_manriquez_16_2026-06-15,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-15,59.2,0,3,,3,,YELLOW,SMA_PROVISIONAL,53.38,11.7,False,0.497,GREEN,,True
+matias_rodrigo_vera_manriquez_16_2026-06-16,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-16,53.05,1,4,,4,,YELLOW,SMA_PROVISIONAL,54.84,10.88,False,-0.164,YELLOW,,False
+matias_rodrigo_vera_manriquez_16_2026-06-17,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-17,62.02,1,5,54.48,11.37,0.664,YELLOW,SMA_PROVISIONAL,54.48,10.09,False,0.748,YELLOW,0.084,False
+matias_rodrigo_vera_manriquez_16_2026-06-19,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-19,51.21,0,6,55.73,11.0,-0.411,GREEN,SMA_PROVISIONAL,55.73,9.75,False,-0.464,GREEN,-0.053,False
+matias_rodrigo_vera_manriquez_16_2026-06-21,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-21,45.78,0,7,55.09,10.56,-0.881,GREEN,EMA_N7_CAPPED,55.17,9.29,False,-1.01,GREEN,-0.129,False
+matias_rodrigo_vera_manriquez_16_2026-06-22,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-22,54.21,0,8,53.92,10.42,0.027,GREEN,EMA_N7_CAPPED,51.7,9.73,False,0.258,GREEN,0.231,False
+matias_rodrigo_vera_manriquez_16_2026-06-23,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-23,43.59,0,9,53.96,10.01,-1.035,GREEN,EMA_N7_CAPPED,52.77,9.68,False,-0.949,GREEN,0.086,False
+matias_rodrigo_vera_manriquez_16_2026-06-24,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-24,49.16,0,10,52.92,10.0,-0.376,GREEN,EMA_N7_CAPPED,49.78,10.22,False,-0.06,GREEN,0.316,False
+matias_rodrigo_vera_manriquez_16_2026-06-25,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-25,40.78,0,11,52.58,9.71,-1.216,GREEN,EMA_N7_CAPPED,49.26,9.98,False,-0.85,GREEN,0.366,False
+matias_rodrigo_vera_manriquez_16_2026-06-26,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-26,61.28,1,12,51.6,9.81,0.987,YELLOW,EMA_N7_CAPPED,46.73,10.44,False,1.393,YELLOW,0.406,False
+matias_rodrigo_vera_manriquez_16_2026-06-27,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-27,59.08,1,13,52.34,9.78,0.689,YELLOW,EMA_N7_CAPPED,51.29,10.35,False,0.752,YELLOW,0.063,False
+matias_rodrigo_vera_manriquez_16_2026-06-30,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-06-30,52.15,0,14,52.82,9.63,-0.07,GREEN,EMA_N7_CAPPED,53.75,10.77,False,-0.149,GREEN,-0.079,False
+matias_rodrigo_vera_manriquez_16_2026-07-02,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-02,47.51,0,15,52.78,9.37,-0.562,GREEN,EMA_N7_CAPPED,53.6,10.64,False,-0.573,GREEN,-0.011,False
+matias_rodrigo_vera_manriquez_16_2026-07-08,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-08,44.23,0,16,52.31,9.43,-0.856,GREEN,EMA_N7_CAPPED,50.95,10.65,False,-0.631,GREEN,0.225,False
+matias_rodrigo_vera_manriquez_16_2026-07-09,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-09,40.64,0,17,51.87,9.6,-1.169,GREEN,EMA_N7_CAPPED,48.87,10.6,False,-0.776,GREEN,0.393,False
+matias_rodrigo_vera_manriquez_16_2026-07-10,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-10,45.72,1,18,50.93,9.88,-0.527,YELLOW,EMA_N7_CAPPED,45.58,11.05,False,0.013,YELLOW,0.54,False
+matias_rodrigo_vera_manriquez_16_2026-07-13,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-13,46.79,0,19,50.03,9.74,-0.332,GREEN,EMA_N7_CAPPED,46.63,10.72,False,0.015,GREEN,0.347,False
+matias_rodrigo_vera_manriquez_16_2026-07-14,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-14,43.51,0,20,49.61,9.74,-0.627,GREEN,EMA_N7_CAPPED,46.58,9.95,False,-0.309,GREEN,0.318,False
+matias_rodrigo_vera_manriquez_16_2026-07-20,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-20,34.57,0,21,48.38,9.35,-1.476,GREEN,EMA_N7_CAPPED,45.17,9.15,False,-1.158,GREEN,0.318,False
+matias_rodrigo_vera_manriquez_16_2026-07-21,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-21,35.2,0,22,47.27,9.8,-1.231,GREEN,EMA_N7_CAPPED,41.23,9.4,False,-0.642,GREEN,0.589,False
+matias_rodrigo_vera_manriquez_16_2026-07-24,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-24,36.37,0,23,46.56,10.16,-1.003,GREEN,EMA_N7_CAPPED,38.96,9.55,False,-0.271,GREEN,0.732,False
+matias_rodrigo_vera_manriquez_16_2026-07-28,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-28,36.8,0,24,45.37,10.22,-0.839,GREEN,EMA_N7_CAPPED,37.88,9.61,False,-0.112,GREEN,0.727,False
+matias_rodrigo_vera_manriquez_16_2026-07-29,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-29,39.23,0,25,44.92,10.39,-0.547,GREEN,EMA_N7_CAPPED,37.75,9.67,False,0.153,GREEN,0.7,False
+matias_rodrigo_vera_manriquez_16_2026-07-30,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-07-30,61.34,2,26,44.26,10.41,1.64,ORANGE,EMA_N7_CAPPED,38.32,9.44,False,2.439,RED,0.799,True
+matias_rodrigo_vera_manriquez_16_2026-08-03,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-03,33.21,0,27,45.63,11.03,-1.126,GREEN,EMA_N7_CAPPED,46.22,11.61,False,-1.121,GREEN,0.005,False
+matias_rodrigo_vera_manriquez_16_2026-08-04,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-04,39.69,0,28,43.76,10.68,-0.381,GREEN,EMA_N7_CAPPED,41.23,11.79,False,-0.13,GREEN,0.251,False
+matias_rodrigo_vera_manriquez_16_2026-08-07,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-07,34.42,0,29,42.46,10.07,-0.799,GREEN,EMA_N7_CAPPED,40.72,11.66,False,-0.54,GREEN,0.259,False
+matias_rodrigo_vera_manriquez_16_2026-08-10,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-10,51.26,0,30,41.28,9.94,1.004,YELLOW,EMA_N7_CAPPED,38.57,11.7,False,1.085,YELLOW,0.081,False
+matias_rodrigo_vera_manriquez_16_2026-08-11,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-11,38.85,0,31,41.53,10.09,-0.266,GREEN,EMA_N7_CAPPED,43.03,12.06,False,-0.347,GREEN,-0.081,False
+matias_rodrigo_vera_manriquez_16_2026-08-12,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-12,20.0,0,32,41.17,10.09,-2.099,GREEN,EMA_N7_CAPPED,41.69,11.97,False,-1.811,GREEN,0.288,False
+matias_rodrigo_vera_manriquez_16_2026-08-13,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-13,47.51,1,33,39.8,11.13,0.693,YELLOW,EMA_N7_CAPPED,35.18,13.89,False,0.888,YELLOW,0.195,False
+matias_rodrigo_vera_manriquez_16_2026-08-14,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-14,34.5,0,34,39.92,11.19,-0.484,GREEN,EMA_N7_CAPPED,38.12,12.04,False,-0.3,GREEN,0.184,False
+matias_rodrigo_vera_manriquez_16_2026-08-18,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-18,44.03,0,35,39.1,11.12,0.444,GREEN,EMA_N7_CAPPED,37.17,11.99,False,0.572,GREEN,0.128,False
+matias_rodrigo_vera_manriquez_16_2026-08-20,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-20,54.32,1,36,39.13,11.13,1.365,YELLOW,EMA_N7_CAPPED,39.31,12.13,False,1.237,YELLOW,-0.128,False
+matias_rodrigo_vera_manriquez_16_2026-08-21,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-21,33.05,0,37,40.45,11.56,-0.64,GREEN,EMA_N7_CAPPED,45.39,12.89,False,-0.957,GREEN,-0.317,False
+matias_rodrigo_vera_manriquez_16_2026-08-24,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-24,35.95,0,38,40.31,11.62,-0.375,GREEN,EMA_N7_CAPPED,40.46,12.58,False,-0.359,GREEN,0.016,False
+matias_rodrigo_vera_manriquez_16_2026-08-25,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-25,34.37,0,39,40.28,11.63,-0.508,GREEN,EMA_N7_CAPPED,37.96,12.61,False,-0.285,GREEN,0.223,False
+matias_rodrigo_vera_manriquez_16_2026-08-26,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-26,40.4,0,40,40.12,11.68,0.024,GREEN,EMA_N7_CAPPED,38.05,10.94,False,0.215,GREEN,0.191,False
+matias_rodrigo_vera_manriquez_16_2026-08-28,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-28,57.59,2,41,40.19,11.67,1.49,ORANGE,EMA_N7_CAPPED,38.24,10.65,False,1.817,ORANGE,0.327,False
+matias_rodrigo_vera_manriquez_16_2026-08-31,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-08-31,46.3,0,42,39.94,11.34,0.56,GREEN,EMA_N7_CAPPED,45.48,11.77,False,0.07,GREEN,-0.49,False
+matias_rodrigo_vera_manriquez_16_2026-09-01,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-09-01,44.94,0,43,40.82,11.3,0.365,GREEN,EMA_N7_CAPPED,46.27,11.82,False,-0.113,GREEN,-0.478,False
+matias_rodrigo_vera_manriquez_16_2026-09-02,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-09-02,25.52,0,44,41.17,11.34,-1.38,GREEN,EMA_N7_CAPPED,44.76,11.17,False,-1.723,GREEN,-0.343,False
+matias_rodrigo_vera_manriquez_16_2026-09-04,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-09-04,50.4,0,45,40.57,11.78,0.834,GREEN,EMA_N7_CAPPED,38.17,12.03,False,1.017,YELLOW,0.183,True
+matias_rodrigo_vera_manriquez_16_2026-09-07,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-09-07,45.12,0,46,40.52,11.74,0.392,GREEN,EMA_N7_CAPPED,42.37,12.22,False,0.225,GREEN,-0.167,False
+matias_rodrigo_vera_manriquez_16_2026-09-08,matias_rodrigo_vera_manriquez_16,Matias Rodrigo Vera Manriquez,2026-09-08,41.39,0,47,40.93,11.77,0.039,GREEN,EMA_N7_CAPPED,43.63,11.84,False,-0.189,GREEN,-0.228,False
+diego_dañobeytia_16_2026-07-18,diego_dañobeytia_16,Diego Dañobeytia,2026-07-18,57.05,1,0,,0,,YELLOW,CALIBRATING,,0,False,,YELLOW,,False
+diego_dañobeytia_16_2026-07-19,diego_dañobeytia_16,Diego Dañobeytia,2026-07-19,39.52,0,1,,1,,GREEN,CALIBRATING,,1,False,,GREEN,,False
+diego_dañobeytia_16_2026-07-20,diego_dañobeytia_16,Diego Dañobeytia,2026-07-20,43.7,0,2,,2,,GREEN,CALIBRATING,,2,False,,GREEN,,False
+diego_dañobeytia_16_2026-07-21,diego_dañobeytia_16,Diego Dañobeytia,2026-07-21,51.37,0,3,,3,,GREEN,SMA_PROVISIONAL,46.76,12.98,False,0.355,GREEN,,False
+diego_dañobeytia_16_2026-07-24,diego_dañobeytia_16,Diego Dañobeytia,2026-07-24,48.63,0,4,,4,,GREEN,SMA_PROVISIONAL,47.91,11.96,False,0.06,GREEN,,False
+diego_dañobeytia_16_2026-07-26,diego_dañobeytia_16,Diego Dañobeytia,2026-07-26,42.89,0,5,48.05,12.06,-0.428,GREEN,SMA_PROVISIONAL,48.05,11.08,False,-0.466,GREEN,-0.038,False
+diego_dañobeytia_16_2026-07-27,diego_dañobeytia_16,Diego Dañobeytia,2026-07-27,42.47,0,6,47.19,11.54,-0.409,GREEN,SMA_PROVISIONAL,47.19,10.5,False,-0.45,GREEN,-0.041,False
+diego_dañobeytia_16_2026-07-28,diego_dañobeytia_16,Diego Dañobeytia,2026-07-28,46.89,0,7,46.52,11.08,0.034,GREEN,EMA_N7_CAPPED,45.39,10.0,False,0.15,GREEN,0.116,False
+diego_dañobeytia_16_2026-07-29,diego_dañobeytia_16,Diego Dañobeytia,2026-07-29,46.21,0,8,46.56,10.61,-0.033,GREEN,EMA_N7_CAPPED,45.05,9.28,False,0.125,GREEN,0.158,False
+diego_dañobeytia_16_2026-07-30,diego_dañobeytia_16,Diego Dañobeytia,2026-07-30,56.35,2,9,46.53,10.19,0.964,ORANGE,EMA_N7_CAPPED,45.66,9.06,False,1.179,ORANGE,0.215,False
+diego_dañobeytia_16_2026-08-01,diego_dañobeytia_16,Diego Dañobeytia,2026-08-01,45.55,0,10,47.51,10.13,-0.193,GREEN,EMA_N7_CAPPED,49.78,9.53,False,-0.444,GREEN,-0.251,False
+diego_dañobeytia_16_2026-08-02,diego_dañobeytia_16,Diego Dañobeytia,2026-08-02,44.05,0,11,47.33,9.8,-0.335,GREEN,EMA_N7_CAPPED,48.17,9.46,False,-0.435,GREEN,-0.1,False
+diego_dañobeytia_16_2026-08-04,diego_dañobeytia_16,Diego Dañobeytia,2026-08-04,44.74,0,12,47.06,9.52,-0.243,GREEN,EMA_N7_CAPPED,46.44,9.48,False,-0.18,GREEN,0.063,False
+diego_dañobeytia_16_2026-08-05,diego_dañobeytia_16,Diego Dañobeytia,2026-08-05,39.29,0,13,46.88,9.25,-0.82,GREEN,EMA_N7_CAPPED,45.83,9.42,False,-0.694,GREEN,0.126,False
+diego_dañobeytia_16_2026-08-08,diego_dañobeytia_16,Diego Dañobeytia,2026-08-08,39.67,0,14,46.34,9.16,-0.728,GREEN,EMA_N7_CAPPED,43.76,9.62,False,-0.425,GREEN,0.303,False
+diego_dañobeytia_16_2026-08-10,diego_dañobeytia_16,Diego Dañobeytia,2026-08-10,46.52,0,15,45.89,9.03,0.07,GREEN,EMA_N7_CAPPED,42.29,9.82,False,0.431,GREEN,0.361,False
+diego_dañobeytia_16_2026-08-13,diego_dañobeytia_16,Diego Dañobeytia,2026-08-13,38.2,0,16,45.19,8.64,-0.809,GREEN,EMA_N7_CAPPED,44.27,9.82,False,-0.618,GREEN,0.191,False
+diego_dañobeytia_16_2026-08-14,diego_dañobeytia_16,Diego Dañobeytia,2026-08-14,36.88,0,17,45.1,8.69,-0.946,YELLOW,EMA_N7_CAPPED,41.62,9.1,False,-0.521,YELLOW,0.425,False
+diego_dañobeytia_16_2026-08-22,diego_dañobeytia_16,Diego Dañobeytia,2026-08-22,44.82,0,18,44.65,8.88,0.019,GREEN,EMA_N7_CAPPED,39.88,9.17,False,0.538,GREEN,0.519,False
+diego_dañobeytia_16_2026-08-24,diego_dañobeytia_16,Diego Dañobeytia,2026-08-24,38.22,0,19,44.21,8.74,-0.686,GREEN,EMA_N7_CAPPED,41.65,9.2,False,-0.372,GREEN,0.314,False
+juan_pablo_castaneda_39_2026-09-08,juan_pablo_castaneda_39,Juan Pablo Castañeda,2026-09-08,47.32,0,0,,0,,GREEN,CALIBRATING,,0,False,,GREEN,,False
+pablo_jaramillo_39_2026-09-08,pablo_jaramillo_39,Pablo Jaramillo,2026-09-08,57.24,1,0,,0,,YELLOW,CALIBRATING,,0,False,,YELLOW,,False
+patricio_rubilar_martinez_ok_45_2026-09-08,patricio_rubilar_martinez_ok_45,Patricio Rubilar Martinez ok,2026-09-08,70.34,3,0,,0,,ORANGE,CALIBRATING,,0,False,,ORANGE,,False

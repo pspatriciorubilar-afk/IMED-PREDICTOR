@@ -178,14 +178,18 @@ def fit_exgaussian(trials: list[float]) -> dict | None:
 # MÓDULO 2: Z-SCORES (Ventana por N Registros Válidos — Protocolo Híbrido)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ─── Parámetros del Protocolo Híbrido de Monitoreo Discontinuo ────────────────
+# ─── Parámetros del Protocolo Híbrido de Monitoreo Discontinuo (v3.3) ─────────
 # Fundamento: Rubilar (2026) — Protocolo Híbrido Validado
-# Con 3–4 mediciones/semana, una ventana de días calendario sesga la media hacia
-# los momentos de mayor estrés. El Z-Score debe indexarse sobre los últimos N
-# registros VÁLIDOS (con tau_ms presente), independientemente del gap temporal.
-ROLLING_BASELINE_N       = 15  # Últimas N sesiones válidas (con tau_ms) para la línea base
-ROLLING_BASELINE_MIN     =  5  # Mínimo de registros para activar Z-Score (antes: 3)
-ROLLING_BASELINE_BUFFER  = ROLLING_BASELINE_N * 4  # Buffer amplio de lectura para filtrar
+# REQ-01: Ventana histórica N=7 sesiones válidas para eliminar el 'efecto ancla'.
+# REQ-02: Media Móvil Exponencial (EMA) con alpha=0.35 (las últimas 3 sesiones ≈ 72.5% del peso).
+# REQ-03: Control de Inflación de Varianza: Cap de sigma_basal en 18.84 ms (MDC).
+# Test 3: Falla Grácil / Cold Start: SMA progresivo para 3 <= n < 7, transición a EMA para n >= 7.
+ROLLING_BASELINE_N       =  7   # Últimas N sesiones válidas (con tau_ms) para la línea base
+ROLLING_BASELINE_MIN     =  3   # Mínimo de registros para activar Z-Score (SMA provisional)
+ROLLING_BASELINE_BUFFER  = ROLLING_BASELINE_N * 5  # Buffer amplio de lectura para filtrar
+EMA_ALPHA                = 0.35 # Factor de suavizado exponencial (3 sesiones ≈ 72.5% del peso)
+SIGMA_CAP_MAX            = 18.84# Cambio Detectable Mínimo (MDC) en ms como techo máximo de varianza
+SIGMA_FLOOR_MIN          =  5.0 # Floor clínico de seguridad para evitar división por cero
 # ──────────────────────────────────────────────────────────────────────────────
 
 def compute_zscores(db, athlete_id: str, today_str: str,
@@ -193,14 +197,15 @@ def compute_zscores(db, athlete_id: str, today_str: str,
     """
     Calcula Z-Scores de τ y Wellness vs. línea base individual del atleta.
 
-    Z = (X_hoy - X̄_N) / SD_N
+    Z = (X_hoy - X̄_basal) / SD_basal
 
-    PROTOCOLO HÍBRIDO v2.1:
-    La ventana usa los últimos ROLLING_BASELINE_N (=15) registros con tau_ms VÁLIDO,
-    en lugar de los últimos 21 días calendario. Esto garantiza que:
-    - Un atleta medido 3 días/semana tiene la misma calidad estadística que uno medido 7.
-    - Los gaps de días sin medición no inflan artificialmente el promedio.
-    - La homeostasis real del atleta (incluyendo días de descanso) se representa.
+    PROTOCOLO HÍBRIDO v3.3:
+    La ventana usa los últimos ROLLING_BASELINE_N (=7) registros con tau_ms VÁLIDO.
+    - REQ-01: N=7 sesiones válidas para eliminar la inercia del SMA de 15 días.
+    - REQ-02: Para n >= 7 se utiliza Media Móvil Exponencial (EMA, alpha=0.35).
+    - REQ-03: Clamping de sigma_basal con techo en 18.84 ms (MDC) para prevenir
+              inflación de varianza que enmascare deterioros neurocognitivos agudos.
+    - Falla Grácil: Si 3 <= n < 7, se aplica SMA provisional hasta completar N=7.
 
     Interpretación de τ_zscore:
         > +1.5  → Cola atencional prolongada (ALERTA)
@@ -213,9 +218,6 @@ def compute_zscores(db, athlete_id: str, today_str: str,
         today_str:       Fecha de hoy (YYYY-MM-DD) — se excluye del baseline
         tau_today:       τ calculado en la sesión de hoy
         wellness_today:  Score de wellness de hoy (0-100) o None
-        baseline_context: Contexto de la línea base estática del atleta
-                          ("PRE_SEASON" | "IN_SEASON" | "COMPETITION_WEEK" | "UNKNOWN")
-                          Se almacena como metadato, no altera el cálculo matemático.
 
     Returns:
         dict con tau_zscore, wellness_zscore, baseline stats y campos de trazabilidad
@@ -246,13 +248,6 @@ def compute_zscores(db, athlete_id: str, today_str: str,
             # Wellness: acumular hasta ROLLING_BASELINE_N (misma ventana para coherencia)
             w = d.get("wellness")
             if isinstance(w, dict) and len(wellness_history) < ROLLING_BASELINE_N:
-                # Fórmula Wellness ponderada por evidencia (4 variables, máx 100 pts)
-                # Pesos basados en literatura de ciencias del deporte:
-                #   sleepHours   30 pts — mayor predictor de consolidación cognitiva (Watson et al., 2015)
-                #   sleepQuality 25 pts — calidad del sueño (Lastella et al., 2020)
-                #   stressLevel  25 pts — predictor primario de bienestar (Hooper & Mackinnon, 1995)
-                #   fatigueLevel 20 pts — marcador complementario (Saw et al., 2016)
-                # DEBE SER IDÉNTICA a snc_engine.dart y app_v411_final.js
                 h = w.get("sleepHours",   8)
                 q = w.get("sleepQuality", 5)
                 s = w.get("stressLevel",  1)
@@ -266,42 +261,74 @@ def compute_zscores(db, athlete_id: str, today_str: str,
                 wellness_history.append(score)
 
         result = {
-            "tau_zscore":               None,
-            "wellness_zscore":          None,
-            "tau_baseline_n":           len(tau_history),
-            "tau_baseline_mean":        None,
-            "tau_baseline_sd":          None,
-            # ── Campos de trazabilidad del Protocolo Híbrido ──
-            "rolling_baseline_mode":         "N_VALID_RECORDS",
+            "tau_zscore":                    None,
+            "wellness_zscore":               None,
+            "tau_baseline_n":                len(tau_history),
+            "tau_baseline_mean":             None,
+            "tau_baseline_sd":               None,
+            "tau_baseline_sigma_capped":     False,
+            # ── Campos de trazabilidad del Protocolo Híbrido v3.3 ──
+            "rolling_baseline_mode":         "EMA_N7_CAPPED",
             "rolling_baseline_n_requested":  ROLLING_BASELINE_N,
             "rolling_baseline_min_required": ROLLING_BASELINE_MIN,
+            "rolling_baseline_alpha":        EMA_ALPHA,
+            "rolling_baseline_sigma_cap":    SIGMA_CAP_MAX,
         }
 
         # ── Z-score de τ ──
-        # PROTOCOLO HÍBRIDO: mínimo ROLLING_BASELINE_MIN (=5) registros válidos
+        # Protocolo Híbrido v3.3:
+        # Si len(tau_history) < 3: INSUFFICIENT_DENSITY (fallback a umbral absoluto)
+        # Si 3 <= len(tau_history) < 7: SMA progresivo provisional (Test 3)
+        # Si len(tau_history) >= 7: EMA(alpha=0.35) + Sigma Cap(18.84ms)
         if len(tau_history) >= ROLLING_BASELINE_MIN:
-            tau_mean = float(np.mean(tau_history))
             n = len(tau_history)
+            sigma_capped = False
+
+            if n >= ROLLING_BASELINE_N:
+                # REQ-02: EMA cronológica desde la sesión más antigua a la más reciente de la ventana
+                # tau_history viene en orden descendente [t_-1, t_-2, ..., t_-7]
+                chrono_taus = tau_history[::-1]
+                ema = chrono_taus[0]
+                for t in chrono_taus[1:]:
+                    ema = (t * EMA_ALPHA) + (ema * (1.0 - EMA_ALPHA))
+                tau_basal = ema
+                mode = "EMA_N7_CAPPED"
+                status_label = "CALIBRATED_EMA"
+            else:
+                # Test 3: SMA progresivo provisional hasta completar ventana N=7
+                tau_basal = float(np.mean(tau_history))
+                mode = "SMA_PROVISIONAL"
+                status_label = "CALIBRATED_PROVISIONAL"
+
+            # Estimador de varianza poblacional con prior Bayesiano para estabilización
             sample_var = float(np.var(tau_history, ddof=1)) if n > 1 else 0.0
-            
-            # Estimador Bayesiano para estabilizar varianza en muestras pequeñas (Cold Start)
             prior_var = 15.0 ** 2  # Varianza poblacional esperada para τ
-            prior_n = 5            # Peso del prior (equivale a 5 observaciones)
-            
+            prior_n = 3            # Peso del prior
             posterior_var = ((n - 1) * sample_var + prior_n * prior_var) / ((n - 1) + prior_n)
             tau_sd = math.sqrt(posterior_var)
-            
-            # Floor standard deviation de seguridad clínica
-            tau_sd = max(tau_sd, 5.0) 
-            
+
+            # REQ-03: Control de Inflación de Varianza (Cap de Desviación Estándar)
+            if tau_sd > SIGMA_CAP_MAX:
+                tau_sd = SIGMA_CAP_MAX
+                sigma_capped = True
+
+            # Floor clínico de seguridad
+            tau_sd = max(tau_sd, SIGMA_FLOOR_MIN)
+
             if tau_today is not None:
-                result["tau_zscore"]        = round((tau_today - tau_mean) / tau_sd, 3)
-            result["tau_baseline_mean"] = round(tau_mean, 2)
-            result["tau_baseline_sd"]   = round(tau_sd, 2)
-            
-            log.info(f"  τ Z-score: {result.get('tau_zscore')}  (base μ={tau_mean:.1f}ms SD={tau_sd:.1f}ms, n={len(tau_history)})")
+                result["tau_zscore"] = round((tau_today - tau_basal) / tau_sd, 3)
+
+            result["tau_baseline_mean"]         = round(tau_basal, 2)
+            result["tau_baseline_sd"]           = round(tau_sd, 2)
+            result["tau_baseline_status"]       = status_label
+            result["tau_baseline_sigma_capped"] = sigma_capped
+            result["rolling_baseline_mode"]     = mode
+            result["rolling_baseline_alpha"]    = EMA_ALPHA if mode == "EMA_N7_CAPPED" else None
+
+            log.info(f"  τ Z-score: {result.get('tau_zscore')} (base μ={tau_basal:.1f}ms SD={tau_sd:.1f}ms, n={n}, mode={mode}, capped={sigma_capped})")
         else:
             result["tau_baseline_status"] = "INSUFFICIENT_DENSITY"
+            result["rolling_baseline_mode"] = "CALIBRATING"
             log.info(f"  Insuficiente historial τ para Z-score ({len(tau_history)}/{ROLLING_BASELINE_MIN} mín requerido — Protocolo Híbrido)")
 
         # ── Z-score de Wellness ──
@@ -310,17 +337,14 @@ def compute_zscores(db, athlete_id: str, today_str: str,
             n_w = len(wellness_history)
             sample_var_w = float(np.var(wellness_history, ddof=1)) if n_w > 1 else 0.0
             
-            # Estimador Bayesiano para Wellness
             prior_var_w = 10.0 ** 2 # Varianza poblacional esperada para Wellness
-            prior_n_w = 5
-            
+            prior_n_w = 3
             posterior_var_w = ((n_w - 1) * sample_var_w + prior_n_w * prior_var_w) / ((n_w - 1) + prior_n_w)
             w_sd = math.sqrt(posterior_var_w)
-            
             w_sd = max(w_sd, 2.0) # Floor variance para wellness
             
             result["wellness_zscore"] = round((wellness_today - w_mean) / w_sd, 3)
-            log.info(f"  Wellness Z-score: {result['wellness_zscore']:.2f}  (base μ={w_mean:.1f} SD={w_sd:.1f}, n={len(wellness_history)})")
+            log.info(f"  Wellness Z-score: {result['wellness_zscore']:.2f} (base μ={w_mean:.1f} SD={w_sd:.1f}, n={len(wellness_history)})")
 
         return result
 
@@ -683,14 +707,17 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
         "tau_zscore":           zscores.get("tau_zscore"),
         "wellness_zscore":      zscores.get("wellness_zscore"),
         "tau_baseline_n":       zscores.get("tau_baseline_n"),
-        "tau_baseline_mean_ms": zscores.get("tau_baseline_mean"),
-        "tau_baseline_sd_ms":   zscores.get("tau_baseline_sd"),
-        "tau_baseline_status":  zscores.get("tau_baseline_status"),
-        # Trazabilidad del Protocolo Híbrido
+        "tau_baseline_mean_ms":        zscores.get("tau_baseline_mean"),
+        "tau_baseline_sd_ms":          zscores.get("tau_baseline_sd"),
+        "tau_baseline_status":         zscores.get("tau_baseline_status"),
+        "tau_baseline_sigma_capped":   zscores.get("tau_baseline_sigma_capped", False),
+        # Trazabilidad del Protocolo Híbrido v3.3
         "rolling_baseline_mode":         zscores.get("rolling_baseline_mode"),
         "rolling_baseline_n_requested":  zscores.get("rolling_baseline_n_requested"),
         "rolling_baseline_n_actual":     zscores.get("tau_baseline_n"),
         "rolling_baseline_min_required": zscores.get("rolling_baseline_min_required"),
+        "rolling_baseline_alpha":        zscores.get("rolling_baseline_alpha"),
+        "rolling_baseline_sigma_cap":    zscores.get("rolling_baseline_sigma_cap"),
         "baseline_context":              baseline_context,
 
         # Resultado del semáforo y Trazabilidad de Lapses (Patch v2.2)
@@ -704,7 +731,7 @@ def process_athlete(db, measurement: dict, today_str: str) -> None:
         "wellness_source":  wellness_source,
         "wellness_score":   round(wellness_score, 2) if wellness_score is not None else None,
         "processed_at":     firestore.SERVER_TIMESTAMP,
-        "version":          "exgauss-3.2",     # v3.2: Patch v2.2 — Lapse Hard-Override Rule
+        "version":          "exgauss-3.3",     # v3.3: N=7 Rolling Baseline + EMA(alpha=0.35) + Sigma Cap(18.84ms)
         "pvt_protocol":     "PVT-B-30"
     }
 
